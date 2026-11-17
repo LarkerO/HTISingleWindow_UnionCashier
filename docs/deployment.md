@@ -4,7 +4,7 @@
 
 | 部件 | 要求 |
 | --- | --- |
-| 前端构建 | Node.js 20.19+ 或 22.12+、npm |
+| 前端构建 | Node.js 20.19+ 或 22.12+、pnpm 10.34.9 |
 | 后台 | 64 位 PHP 8.2+、Composer、支持 SM2/SM3 的 OpenSSL 3 CLI |
 | PHP 扩展 | curl、mbstring、openssl、zip、PDO 和所选数据库的 PDO 驱动。Linux 另需 pcntl、posix |
 | 插件构建 | JDK 17+、Maven |
@@ -12,12 +12,12 @@
 
 ## 安装后台
 
-从仓库根目录运行以下命令。
+安装 pnpm 后，从仓库根目录运行以下命令。已安装 Corepack 时，可先运行 `corepack enable pnpm`。
 
 ```sh
 cd frontend
-npm ci
-npm run build
+pnpm install --frozen-lockfile
+pnpm build
 cd ../backend
 composer install --no-dev
 php start.php setup-token

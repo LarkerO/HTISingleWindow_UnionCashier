@@ -20,7 +20,7 @@ final class Http
     {
         $file = BASE_PATH . '/public/index.html';
         if (!is_file($file)) {
-            return new Response(503, self::HEADERS, '请先构建前端：cd frontend; npm ci; npm run build');
+            return new Response(503, self::HEADERS, '请先进入 frontend，运行 pnpm install --frozen-lockfile 和 pnpm build');
         }
         return (new Response(200, self::HEADERS + ['Content-Type' => 'text/html; charset=utf-8',
             'Content-Security-Policy' => "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:"]))->withFile($file);

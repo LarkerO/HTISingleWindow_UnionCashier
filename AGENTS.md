@@ -8,6 +8,8 @@
 - 通过 `/install` 配置数据库、验证 Portal OAuth2、生成 SM2 密钥。首位安装登录者为超级管理员。仅通过 HydCraft Portal 注册和登录，使用 OAuth2 PKCE S256。用 OAuth 身份查 Portal 玩家档案、同步已验证 Minecraft UUID，遵守 Portal 隐私设置。
 - React 前端使用 `@lobehub/ui`，新增组件先核对 [Lobe UI 组件说明](https://ui.lobehub.com/skills.md)。适配宽屏和窄屏。HarmonyOS Sans 使用 [Lobe Assets](https://github.com/lobehub/lobe-assets) Webfont。清理手动下载的字体包和 TTF。页脚与项目正文保持简洁。
 
+- 前端使用 pnpm，版本由 `frontend/package.json` 固定。提交 `frontend/pnpm-lock.yaml`，部署用 `pnpm install --frozen-lockfile`。
+
 ## 业务与接口
 
 - 支持收银台、预授权冻结与全额解除或部分结算、免密签约／扣款／解约、退款、分账和提现。预授权和免密支持支付方式顺序。退款和释放沿原支付来源办理。
