@@ -22,11 +22,7 @@ body, button, input, textarea, [data-theme] { font-family: "HarmonyOS Sans SC", 
 .brand-logo img, img.brand-logo { width: 100% !important; height: auto !important; object-fit: contain; }
 .header-actions { flex: 0 0 auto; }
 .content { flex: 1; padding-block: 23px 48px; }
-.content, .app-tabs [role=tabpanel], .checkout-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-content: start; }
-.app-tabs { min-width: 0; }
-.app-tabs [role=tablist] { width: 100%; overflow-x: auto; justify-content: flex-start; }
-.app-tabs [role=tabpanel] { padding-top: 23px; }
-.app-tabs [role=tabpanel][hidden] { display: none; }
+.content, .checkout-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-content: start; }
 .page-title { margin-block: 8px 4px; }
 .page-title h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.23; margin: 0; letter-spacing: -.02em; }
 .page-title p, .panel p { margin: 0; }
@@ -183,3 +179,17 @@ p.muted { line-height: 1.62; }
 }
 
 .workspace-link > :first-child { flex-shrink: 0; }
+
+.account-menu-profile { max-width: min(310px, 85vw); overflow-wrap: anywhere; }
+.account-menu-trigger .account-role { white-space: nowrap; }
+@media (max-width: 400px) {
+  .account-menu-trigger .account-role { display: none; }
+}
+
+.docs-masthead { justify-content: space-between; min-height: 72px; }
+.docs-return { flex-shrink: 0; }
+.docs-content .workspace { grid-template-columns: minmax(190px, 232px) minmax(0, 1fr); }
+.documentation .code { white-space: pre; overflow-x: auto; }
+@media (max-width: 800px) {
+  .docs-content .workspace { grid-template-columns: minmax(0, 1fr); }
+}

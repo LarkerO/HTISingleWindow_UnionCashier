@@ -19,12 +19,23 @@ final class Http
 
     public function page(Request $request, string $id = ''): Response
     {
-        $file = BASE_PATH . '/public/index.html';
+        $portal = Config::read()['portal'] ?? null;
+        return $this->html('index.html', $portal === null ? '' : ' https: ' . Config::origin($portal));
+    }
+
+    public function documentation(Request $request, string $operation = ''): Response
+    {
+        return $this->html('docs.html');
+    }
+
+    private function html(string $entry, string $avatarOrigins = ''): Response
+    {
+        $file = BASE_PATH . '/public/' . $entry;
         if (!is_file($file)) {
             return new Response(503, self::HEADERS, '请先进入 frontend，运行 pnpm install --frozen-lockfile 和 pnpm build');
         }
         return (new Response(200, self::HEADERS + ['Content-Type' => 'text/html; charset=utf-8',
-            'Content-Security-Policy' => "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:"]))->withFile($file);
+            'Content-Security-Policy' => "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:{$avatarOrigins}"]))->withFile($file);
     }
 
     public function api(Request $request, string $path): Response
@@ -32,6 +43,9 @@ final class Http
         return $this->attempt(function () use ($request, $path) {
             $method = $request->method();
             $config = Config::read();
+            if ($method === 'GET' && $path === 'platform-key') {
+                return $this->json(['public_key' => $config['keys']['public'] ?? null]);
+            }
             $session = $this->session($request, $config);
             if ($method === 'GET' && $path === 'status') {
                 $csrf = $session->get('csrf') ?: Config::token();
@@ -472,7 +486,10 @@ final class Http
     {
         if ($user !== null) {
             if (($user['minecraft_source'] ?? '') !== 'portal') {
-                unset($user['uuid'], $user['minecraft_name']);
+                unset($user['uuid']);
+                if (!isset($user['minecraft_status'])) {
+                    unset($user['minecraft_name']);
+                }
             }
             unset($user['link_code'], $user['minecraft_source']);
         }

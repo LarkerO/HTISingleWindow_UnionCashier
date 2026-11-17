@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Descriptions, Divider, Flexbox, Statistic, Tag, Text } from '@lobehub/ui';
 import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, Panel, products, rails, SignIn, State, useAction, useLoad } from './shared';
-
 import { PaymentLimits, Statement } from './Statements';
+
+const minecraftStatus = {
+  profile_scope_missing: 'Portal 授权未返回用户名，请联系平台管理员检查 OAuth profile 权限。',
+  profile_unavailable: 'Portal 未提供该用户的公开 Minecraft 档案。若要同步，请检查公开个人资料和显示 Minecraft 档案两项设置，再重新登录。',
+  unverified: 'Portal 暂无已验证的 Minecraft 绑定，请在 Portal 检查绑定验证状态。',
+  primary_required: 'Portal 有多个已验证档案，请选定唯一的主档案后重新登录。',
+  uuid_missing: 'Portal 已验证绑定，但绑定记录缺少可用的 UUID。请联系 Portal 管理员检查该玩家的绑定记录。',
+  uuid_in_use: '该 Minecraft UUID 已关联其他清算账号，请联系清算管理员核对。',
+};
 
 export function Account({ user, online, section = 'account' }) {
   const account = useLoad(user ? 'account' : null, 4000);
@@ -35,10 +43,10 @@ export function Account({ user, online, section = 'account' }) {
     {section === 'account' && <Flexbox className="service-grid account-grid">
       <Panel title="Minecraft 玩家">
         <Descriptions column={1} colon={false} items={[
-          { label: '游戏名称', children: user.minecraft_name ?? '尚未绑定' },
+          { label: '游戏名称', children: user.minecraft_name || '尚未同步' },
           { label: '清算账号 ID', children: user.id },
         ]} />
-        {!user.uuid && <Text as="p" className="muted">请在 Portal 绑定 Minecraft 玩家、公开玩家档案后重新登录。</Text>}
+        {!user.uuid && <Text as="p" className="muted">{minecraftStatus[user.minecraft_status] ?? '尚无同步状态，请重新登录以检查 Portal 档案。'}</Text>}
       </Panel>
       <Panel title="游戏内余额" action={<Button disabled={!user.uuid} loading={action.busy}
         onClick={() => action.run(async () => { await api('balance', {}); account.reload(); })}>查询</Button>}>

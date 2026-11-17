@@ -33,23 +33,78 @@ final class Portal
         $user = [
             'id' => $sub, 'hydroline_id' => mb_substr((string) ($profile['hydroline_id'] ?? ''), 0, 100),
             'name' => mb_substr((string) ($profile['name'] ?? $profile['preferred_username'] ?? $sub), 0, 120),
+            'avatar_url' => self::avatarUrl($config['portal'], $profile['picture'] ?? null),
         ];
         $username = $profile['preferred_username'] ?? null;
-        if (is_string($username) && $username !== '') {
-            $accounts = self::request('读取 Minecraft 档案', $config['portal'] . '/api/public/users/' .
-                rawurlencode($username) . '/minecraft-accounts', [], null, true)['accounts'] ?? [];
-            $eligible = array_values(array_filter($accounts, static fn ($account) =>
-                is_array($account) && ($account['identityKind'] ?? '') === 'AUTHENTICATED'
-                && ($account['status'] ?? '') === 'VERIFIED'
-                && is_string($account['uuid'] ?? null)
-                && preg_match('/\A[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}\z/i', $account['uuid'])));
-            $primary = array_values(array_filter($eligible, static fn ($account) => ($account['isPrimary'] ?? false) === true));
-            $selected = count($primary) === 1 ? $primary[0] : (count($eligible) === 1 ? $eligible[0] : null);
-            if ($selected) {
-                $user += ['uuid' => strtolower($selected['uuid']), 'minecraft_name' => mb_substr((string) $selected['username'], 0, 50)];
-            }
+        if (!is_string($username) || $username === '') {
+            return $user + ['minecraft_status' => 'profile_scope_missing'];
         }
-        return $user;
+        $profileUrl = $config['portal'] . '/api/public/users/' . rawurlencode($username);
+        if ($user['avatar_url'] === null) {
+            $user['avatar_url'] = self::publicAvatar($config['portal'], $profileUrl);
+        }
+        $profile = self::request('读取 Minecraft 档案', $profileUrl . '/minecraft-accounts', [], null, 2097152, true);
+        if (isset($profile['not_found'])) {
+            return $user + ['minecraft_status' => 'profile_unavailable'];
+        }
+        if (!is_array($profile['accounts'] ?? null) || !array_is_list($profile['accounts'])) {
+            throw new Fault('HydCraft Portal Minecraft 档案响应缺少账号列表', 502);
+        }
+        return $user + self::minecraftProfile($profile['accounts']);
+    }
+
+    private static function publicAvatar(string $portal, string $profileUrl): ?string
+    {
+        try {
+            $public = self::request('读取公开头像', $profileUrl, [], null, 2097152, true);
+            return self::avatarUrl($portal, $public['profile']['avatarUrl'] ?? null);
+        } catch (Fault) {
+            // An optional public avatar must not prevent OAuth login.
+            return null;
+        }
+    }
+
+    private static function avatarUrl(string $portal, mixed $picture): ?string
+    {
+        if (!is_string($picture) || strlen($picture) > 2048) {
+            return null;
+        }
+        $picture = trim($picture);
+        if (str_starts_with($picture, '/') && !str_starts_with($picture, '//')) {
+            $picture = Config::origin($portal) . $picture;
+        }
+        try {
+            $url = Config::url($picture);
+            return str_starts_with($url, 'https://') || Config::origin($url) === Config::origin($portal) ? $url : null;
+        } catch (Fault) {
+            return null;
+        }
+    }
+
+    private static function minecraftProfile(array $accounts): array
+    {
+        $verified = array_values(array_filter($accounts, static fn ($account) =>
+            is_array($account) && ($account['identityKind'] ?? '') === 'AUTHENTICATED'
+            && ($account['status'] ?? '') === 'VERIFIED'));
+        if (!$verified) {
+            return ['minecraft_status' => 'unverified'];
+        }
+        $primary = array_values(array_filter($verified, static fn ($account) => ($account['isPrimary'] ?? false) === true));
+        $selected = count($primary) === 1 ? $primary[0] : (count($verified) === 1 ? $verified[0] : null);
+        if ($selected === null) {
+            return ['minecraft_status' => 'primary_required'];
+        }
+
+        // Portal can verify an AuthMe binding before recording its bound UUID.
+        // playerIdentity.resolvedUuid may come from a match by username alone.
+        $uuid = $selected['uuid'] ?? $selected['playerIdentity']['boundUuid'] ?? null;
+        if (!is_string($uuid) || !preg_match('/\A(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\z/i', $uuid)) {
+            return ['minecraft_status' => 'uuid_missing', 'minecraft_name' => mb_substr((string) ($selected['username'] ?? ''), 0, 50)];
+        }
+        $compact = strtolower(str_replace('-', '', $uuid));
+        $uuid = vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split($compact, 4));
+        return ['minecraft_status' => 'linked', 'uuid' => $uuid,
+            'minecraft_name' => mb_substr((string) ($selected['username'] ?? ''), 0, 50)];
     }
 
     public static function saveProfile(Store $db, array $user, bool $admin = false): void
@@ -79,7 +134,8 @@ final class Portal
                 }
             }
             if ($owner !== null && $owner !== $user['id']) {
-                unset($user['uuid'], $user['minecraft_name']);
+                unset($user['uuid']);
+                $user['minecraft_status'] = 'uuid_in_use';
             } else {
                 $user['minecraft_source'] = 'portal';
                 $db->put('uuid', $user['uuid'], ['user' => $user['id']]);
@@ -88,12 +144,22 @@ final class Portal
         $db->put('user', $user['id'], $user + ['admin' => $admin || ($existing['admin'] ?? false)] + $existing);
     }
 
-    private static function request(string $stage, string $url, array $headers, ?array $form = null, bool $allowMissing = false): array
+    private static function request(string $stage, string $url, array $headers, ?array $form = null, int $maxBytes = 65536, bool $allowMissing = false): array
     {
         $curl = curl_init($url);
+        $body = '';
+        $tooLarge = false;
         $options = [
             CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_TIMEOUT => 8,
             CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_WRITEFUNCTION => static function ($curl, string $chunk) use (&$body, &$tooLarge, $maxBytes): int {
+                if (strlen($body) + strlen($chunk) > $maxBytes) {
+                    $tooLarge = true;
+                    return 0;
+                }
+                $body .= $chunk;
+                return strlen($chunk);
+            },
             CURLOPT_HTTPHEADER => ['Accept: application/json', ...$headers],
         ];
         // Windows PHP builds backed by OpenSSL may lack a default CA bundle.
@@ -109,13 +175,16 @@ final class Portal
             $options += [CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query($form)];
         }
         curl_setopt_array($curl, $options);
-        $body = curl_exec($curl);
+        $success = curl_exec($curl);
         $status = curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
         $errno = curl_errno($curl);
         if ($allowMissing && $status === 404) {
-            return [];
+            return ['not_found' => true];
         }
-        if ($body === false || $status === 0) {
+        if ($tooLarge) {
+            throw new Fault("HydCraft Portal {$stage}失败：响应超过允许大小", 502);
+        }
+        if ($success === false || $status === 0) {
             $detail = match ($errno) {
                 5, 6 => '域名解析失败',
                 7 => '连接失败',
@@ -125,7 +194,7 @@ final class Portal
             };
             throw new Fault("HydCraft Portal {$stage}失败：{$detail}（cURL {$errno}）", 502);
         }
-        if ($status !== 200 || strlen($body) > 65536) {
+        if ($status !== 200) {
             throw new Fault("HydCraft Portal {$stage}失败（HTTP {$status}）", 502);
         }
         try {

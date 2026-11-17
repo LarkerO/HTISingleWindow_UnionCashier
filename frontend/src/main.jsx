@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { A, Button, ConfigProvider, Flexbox, Image, Tag, Text } from '@lobehub/ui';
+import { A, ConfigProvider, Flexbox, Image, Tag, Text } from '@lobehub/ui';
 import { motion } from 'motion/react';
 import '@lobehub/ui/theme.css';
 import '@lobehub/ui/style.css';
@@ -7,13 +8,25 @@ import './styles.css';
 import { api, Feedback, Loading, useAction, useLoad } from './shared';
 import Install from './Install';
 import { Checkout } from './Player';
-import Workspace from './Workspace';
+import Workspace, { workspaceRoute } from './Workspace';
+import AccountMenu from './AccountMenu';
 
 function App() {
   const status = useLoad('status', 5000);
   const action = useAction();
+  const [hash, setHash] = useState(() => location.hash);
+  useEffect(() => {
+    function update() {
+      if (location.hash === '#docs' && location.pathname === '/') location.replace('/docs');
+      else setHash(location.hash);
+    }
+    update();
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
+  }, []);
   const data = status.data;
   const user = data?.user;
+  const route = workspaceRoute(user, hash);
   const checkoutId = /^\/checkout\/([0-9a-f]{32})$/.exec(location.pathname)?.[1];
   const installation = location.pathname === '/install' || (data && !data.installed);
 
@@ -27,10 +40,11 @@ function App() {
           {data?.installed && <Tag className="environment" color={data.mode === 'production' ? 'success' : 'gray'}>
             {data.mode === 'production' ? '正式环境' : '开发环境'}
           </Tag>}
-          {user && <Button loading={action.busy} size="small" onClick={() => action.run(async () => {
-            await api('logout', {});
-            location.assign('/');
-          })}>退出登录</Button>}
+          {user && <AccountMenu user={user} role={route.role} busy={action.busy}
+            onLogout={() => action.run(async () => {
+              await api('logout', {});
+              location.assign('/');
+            })} />}
         </Flexbox>
       </div>
     </header>
@@ -39,10 +53,11 @@ function App() {
       {!data && !status.error && <Loading />}
       {data && (installation ? <Install installed={data.installed} canRetry={data.oauth_setup_retry} verified={data.oauth_setup_verified} error={data.oauth_error} />
         : checkoutId ? <Checkout id={checkoutId} user={user} />
-          : <Workspace user={user} online={data.plugin_online} publicKey={data.public_key} />)}
+          : <Workspace user={user} online={data.plugin_online} route={route} />)}
     </main>
     <footer className="shell footer">
       <Text>氢气工艺服务器 · 统一支付清算</Text>
+      <A href="/docs">开放接口文档</A>
     </footer>
   </>;
 }

@@ -9,10 +9,11 @@
 | `GET /` | 玩家、商户、系统管理面板和接口文档 |
 | `GET /install` | 安装向导 |
 | `GET /checkout/{id}` | 玩家确认付款、预授权或签约 |
+| `GET /api/platform-key` | 匿名获取平台 SM2 公钥，未安装时返回空值 |
 | `GET /oauth/login?next=/checkout/{id}` | 跳往 Portal，`next` 可省略 |
 | `GET /oauth/callback` | 校验 state，并用 PKCE verifier 向 Portal 换取身份。失败时返回安装页或登录前页面 |
 
-Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/userinfo`、`/api/public/users/{preferred_username}/minecraft-accounts`。最后一个接口是公开档案，受 Portal 隐私设置控制。
+Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/userinfo`、`/api/public/users/{preferred_username}/minecraft-accounts`。最后一个接口需同时开启公开个人资料和显示 Minecraft 档案。仅同步已验证绑定的 UUID，按用户名匹配的游戏服务器 UUID 不作为钱包身份。登录响应另包含头像地址与 Minecraft 档案同步状态。
 
 ## 浏览器 API
 

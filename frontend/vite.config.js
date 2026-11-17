@@ -2,11 +2,24 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  plugins: [{
+    name: 'cashier-docs-entry',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (/^\/docs(?:\/[a-z-]+)?\/?(?:\?|$)/.test(req.url ?? '')) req.url = '/docs.html';
+        next();
+      });
+    },
+  }],
   esbuild: { jsx: 'automatic' },
   build: {
     outDir: '../backend/public',
     emptyOutDir: true,
     rollupOptions: {
+      input: {
+        cashier: fileURLToPath(new URL('index.html', import.meta.url)),
+        docs: fileURLToPath(new URL('docs.html', import.meta.url)),
+      },
       onwarn(warning, handler) {
         if (warning.code !== 'MODULE_LEVEL_DIRECTIVE') handler(warning);
       },
