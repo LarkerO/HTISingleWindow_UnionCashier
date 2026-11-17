@@ -1,34 +1,21 @@
-import { lazy, Suspense, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { A, Button, ConfigProvider, Flexbox, Image, Tabs, Tag, Text } from '@lobehub/ui';
+import { A, Button, ConfigProvider, Flexbox, Image, Tag, Text } from '@lobehub/ui';
 import { motion } from 'motion/react';
 import '@lobehub/ui/theme.css';
 import '@lobehub/ui/style.css';
 import './styles.css';
 import { api, Feedback, Loading, useAction, useLoad } from './shared';
 import Install from './Install';
-import { Account, Checkout } from './Player';
-import { Admin, Merchants } from './Merchant';
-
-import { PlayerCards } from './Cards';
-import { PageTitle, Panel, SignIn } from './shared';
-
-const Docs = lazy(() => import('./Docs'));
+import { Checkout } from './Player';
+import Workspace from './Workspace';
 
 function App() {
   const status = useLoad('status', 5000);
   const action = useAction();
-  const initialTab = ['merchant', 'docs', 'admin', 'cards'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'account';
-  const [tab, setTab] = useState(initialTab);
   const data = status.data;
   const user = data?.user;
   const checkoutId = /^\/checkout\/([0-9a-f]{32})$/.exec(location.pathname)?.[1];
   const installation = location.pathname === '/install' || (data && !data.installed);
-
-  function setSection(key) {
-    setTab(key);
-    history.replaceState(null, '', key === 'account' ? '/' : '/#' + key);
-  }
 
   return <>
     <header className="masthead">
@@ -52,14 +39,7 @@ function App() {
       {!data && !status.error && <Loading />}
       {data && (installation ? <Install installed={data.installed} canRetry={data.oauth_setup_retry} verified={data.oauth_setup_verified} error={data.oauth_error} />
         : checkoutId ? <Checkout id={checkoutId} user={user} />
-          : <Tabs className="app-tabs" variant="square" activeKey={tab === 'admin' && !user?.admin ? 'account' : tab}
-            onChange={setSection} items={[
-              { key: 'account', label: '玩家面板', children: <Account user={user} online={data.plugin_online} /> },
-              { key: 'cards', label: '预付卡', children: <><PageTitle title="预付卡" />{user ? <PlayerCards user={user} /> : <Panel title="登录管理预付卡"><SignIn /></Panel>}</> },
-              { key: 'merchant', label: '商户管理', children: <Merchants user={user} /> },
-              { key: 'docs', label: '接口文档', children: <Suspense fallback={<Loading />}><Docs publicKey={data.public_key} /></Suspense> },
-              ...(user?.admin ? [{ key: 'admin', label: '系统管理', children: <Admin user={user} online={data.plugin_online} /> }] : []),
-            ]} />)}
+          : <Workspace user={user} online={data.plugin_online} publicKey={data.public_key} />)}
     </main>
     <footer className="shell footer">
       <Text>氢气工艺服务器 · 统一支付清算</Text>

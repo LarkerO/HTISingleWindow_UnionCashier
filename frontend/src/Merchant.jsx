@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Alert, Button, Flexbox, Tag, Text } from '@lobehub/ui';
-import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, Panel, products, rails, randomId, SignIn, State, useAction, useLoad } from './shared';
+import { A, Alert, Badge, Button, Descriptions, Flexbox, Select, Statistic, Tag, Text } from '@lobehub/ui';
+import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, Panel, products, rails, randomId, State, useAction, useLoad } from './shared';
 import { OrderRow } from './Player';
 import { CardIssuer } from './Cards';
 import { MerchantSettlement, Statement } from './Statements';
@@ -11,81 +11,103 @@ function BusinessForm({ label, value, setValue, name, ...rest }) {
 
 const lines = content => content.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 
-export function Merchants({ user }) {
-  const list = useLoad(user ? 'merchants' : null);
+export function Merchants({ user, admin, section, route }) {
+  const list = useLoad('merchants');
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({});
   const flow = useAction();
-  const merchantId = list.data?.merchants.some(merchant => merchant.id === selected) ? selected : list.data?.merchants[0]?.id;
+  const merchants = list.data?.merchants.filter(merchant => admin || merchant.members[user.id]) ?? [];
+  const current = merchants.find(merchant => merchant.id === selected) ?? merchants[0];
+  const merchantId = current?.id;
   const detail = useLoad(merchantId ? 'merchants/' + merchantId : null, 4000);
   const merchant = detail.data?.merchant;
+  const canEdit = admin || current?.members[user.id] === 'admin';
+  const pages = [
+    ['overview', '概览'],
+    ['orders', '订单'],
+    ['statement', '对账'],
+    ['console', '交易调试'],
+    ...(admin ? [['review', '审核与产品'], ['settlement', '限额与清算']] : []),
+    ...(canEdit ? [['keys', '接口密钥'], ['members', '成员']] : []),
+    ...(canEdit && current?.state === 'approved'
+      ? [['cards', '发行预付卡'], ['bind', '代玩家绑卡'], ['card-events', '预付卡记录']] : []),
+  ];
+  const active = section === 'onboard' || pages.some(([key]) => section === key) ? section : 'overview';
   return <>
-    <PageTitle title="商户管理" description="申请进件、管理开放接口与成员，并查看清算余额。" />
-    {!user ? <Panel title="登录商户面板"><SignIn /></Panel> : <>
-      <Feedback error={list.error ?? detail.error ?? flow.error} success={flow.success} />
-      <div className="merchant-selection">
-        <Panel title="我的商户">
-          {!list.data && !list.error && <Loading />}
-          {list.data?.merchants.length === 0 && <Empty>暂无关联商户。</Empty>}
-          {list.data?.merchants.map(item => <Button block key={item.id}
-            type={item.id === merchantId ? 'default' : 'text'} className="merchant-item"
-            onClick={() => setSelected(item.id)}>
-            <span>{item.name}</span><State value={item.state} />
-          </Button>)}
-        </Panel>
-        <Panel title={user.admin ? '商户进件' : '申请进件'}>
-          <form className="stack" onSubmit={event => {
-            event.preventDefault();
-            flow.run(async () => {
-              const result = await api('merchant', { ...form, action: 'onboard' });
-              setSelected(result.merchant.id);
-              setForm({});
-              list.reload();
-            }, '已提交进件');
-          }}>
-            <BusinessForm name="name" label="商户名称" value={form} setValue={setForm} required />
-            {user.admin && <BusinessForm name="owner" label="管理员清算账号 ID（留空使用当前账号）" value={form} setValue={setForm} />}
-            <Flexbox horizontal><Button type="primary" className="primary" htmlType="submit" loading={flow.busy}>提交进件</Button></Flexbox>
-          </form>
-        </Panel>
-      </div>
-      {merchant && <MerchantDetail key={merchant.id} user={user} data={detail.data}
-        refresh={() => { detail.reload(); list.reload(); }} />}
+    <PageTitle title={admin ? '商户审核与管理' : '我的商户'} />
+    <Feedback error={list.error ?? detail.error ?? flow.error} success={flow.success} />
+    <Panel>
+      <Flexbox horizontal gap={12} align="center" wrap="wrap">
+        {merchants.length > 0 && <Select aria-label="当前商户" className="merchant-picker" value={merchantId}
+          onChange={setSelected} options={merchants.map(item => ({
+            value: item.id, label: <Flexbox horizontal align="center" gap={8}><Text>{item.name}</Text><State value={item.state} /></Flexbox>,
+          }))} />}
+        <A className="workspace-link" href={'#' + route + '/onboard'}
+          aria-current={active === 'onboard' ? 'page' : undefined}>{admin ? '商户进件' : '申请进件'}</A>
+      </Flexbox>
+      {merchantId && <Flexbox as="nav" aria-label="商户栏目" horizontal gap={4} wrap="wrap">
+        {pages.map(([key, label]) => <A key={key} className="workspace-link" href={'#' + route + '/' + key}
+          aria-current={active === key ? 'page' : undefined}>{label}</A>)}
+      </Flexbox>}
+    </Panel>
+    {active === 'onboard' ? <Panel title={admin ? '商户进件' : '申请进件'}>
+      <form className="stack" onSubmit={event => {
+        event.preventDefault();
+        flow.run(async () => {
+          const result = await api('merchant', { ...form, action: 'onboard' });
+          setSelected(result.merchant.id);
+          setForm({});
+          list.reload();
+        }, '已提交进件');
+      }}>
+        <BusinessForm name="name" label="商户名称" value={form} setValue={setForm} required />
+        {admin && <BusinessForm name="owner" label="管理员清算账号 ID（留空使用当前账号）" value={form} setValue={setForm} />}
+        <Flexbox horizontal><Button type="primary" className="primary" htmlType="submit" loading={flow.busy}>提交进件</Button></Flexbox>
+      </form>
+    </Panel> : <>
+      {(!list.data && !list.error || merchantId && !merchant && !detail.error) && <Loading />}
+      {list.data && !merchants.length && <Empty>暂无关联商户。</Empty>}
     </>}
+    {merchant && <MerchantDetail key={merchant.id} data={detail.data} section={active} canEdit={canEdit} admin={admin}
+      refresh={() => { detail.reload(); list.reload(); }} />}
   </>;
 }
 
-function MerchantDetail({ user, data, refresh }) {
+function MerchantDetail({ data, section, canEdit, admin, refresh }) {
   const { merchant, orders, balances } = data;
-  const editable = user.admin || merchant.members[user.id] === 'admin';
   return <>
-    <Panel title={merchant.name} subtitle={'商户号 ' + merchant.id} action={<State value={merchant.state} />}>
-      <Flexbox horizontal gap={8} wrap="wrap">
-        {merchant.products.length ? merchant.products.map(product => <Tag key={product}>{products[product]}</Tag>) : <Text className="muted">尚未开通能力产品</Text>}
+    {section === 'overview' && <Panel title={merchant.name} action={<State value={merchant.state} />}>
+      <Descriptions column={1} colon={false} items={[
+        { label: '商户号', children: merchant.id },
+        { label: '正式清算周期', children: merchant.cycle ?? 'D+0' },
+        { label: '已开通产品', children: <Flexbox horizontal gap={8} wrap="wrap">
+          {merchant.products.length ? merchant.products.map(product => <Tag key={product}>{products[product]}</Tag>) : '尚未开通'}
+        </Flexbox> },
+      ]} />
+      <Flexbox className="balance-grid">
+        {['live', 'sandbox'].flatMap(env => Object.entries(rails).map(([rail, label]) => {
+          const ledger = balances.find(row => row.env === env && row.rail === rail);
+          return <Flexbox key={env + rail} gap={4}>
+            <Statistic title={(env === 'live' ? '正式' : '沙箱') + ' · ' + label} value={money(ledger?.balance ?? 0)} />
+            <Text className="muted">可提现 {money(ledger?.available ?? 0)}</Text>
+          </Flexbox>;
+        }))}
       </Flexbox>
-      <Text className="muted">正式清算周期 {merchant.cycle ?? 'D+0'}</Text>
-      <div className="balance-grid">
-        {['live', 'sandbox'].flatMap(env => Object.entries(rails).map(([rail, label]) => <div key={env + rail}>
-          <Text className="muted">{env === 'live' ? '正式' : '沙箱'} · {label}</Text>
-          <Text className="amount">{money(balances.find(b => b.env === env && b.rail === rail)?.balance ?? 0)}</Text>
-          <Text className="muted">可提现 {money(balances.find(b => b.env === env && b.rail === rail)?.available ?? 0)}</Text>
-        </div>))}
-      </div>
-    </Panel>
-    {user.admin && <><MerchantReview merchant={merchant} refresh={refresh} /><MerchantSettlement merchant={merchant} refresh={refresh} /></>}
-    {editable && <div className="merchant-selection"><MerchantKeys merchant={merchant} refresh={refresh} />
-      <MerchantMembers merchant={merchant} refresh={refresh} /></div>}
-    <Console merchant={merchant} refresh={refresh} />
-    <Statement merchantId={merchant.id} />
-    {editable && merchant.state === 'approved' && <CardIssuer issuer={merchant.id} />}
-    <Panel title="商户订单">
+    </Panel>}
+    {admin && section === 'review' && <MerchantReview merchant={merchant} refresh={refresh} />}
+    {admin && section === 'settlement' && <MerchantSettlement merchant={merchant} refresh={refresh} />}
+    {canEdit && section === 'keys' && <MerchantKeys merchant={merchant} refresh={refresh} />}
+    {canEdit && section === 'members' && <MerchantMembers merchant={merchant} refresh={refresh} />}
+    <Flexbox className="merchant-console" hidden={section !== 'console'}><Console merchant={merchant} refresh={refresh} /></Flexbox>
+    {section === 'statement' && <Statement merchantId={merchant.id} />}
+    {canEdit && merchant.state === 'approved' && <CardIssuer issuer={merchant.id} section={section} />}
+    {section === 'orders' && <Panel title="商户订单">
       {!orders.length && <Empty>暂无订单。</Empty>}
-      {orders.map(order => <OrderRow order={order} key={order.id}
-        action={order.checkout_url ? <Button href={order.checkout_url} size="small">收银台</Button> : null} />)}
-      {!!orders.length && <div className="technical-list">
-        {orders.map(order => <Text as="p" code key={order.id}>{order.out_trade_no} · {order.id}</Text>)}
-      </div>}
-    </Panel>
+      {orders.map(order => <Flexbox key={order.id}>
+        <OrderRow order={order} action={order.checkout_url ? <Button href={order.checkout_url} size="small">收银台</Button> : null} />
+        <Text as="p" code>{order.out_trade_no} · {order.id}</Text>
+      </Flexbox>)}
+    </Panel>}
   </>;
 }
 
@@ -191,11 +213,12 @@ function Console({ merchant, refresh }) {
   }
 
   return <Panel title="交易调试" subtitle="沙箱提供独立的模拟余额。正式请求会实际变更游戏或商户余额。">
+    {form.environment === 'live' && <Alert type="warning" title="当前为正式环境，提交前请核对账号与金额。" />}
     <form className="stack" onSubmit={submit}>
       <div className="form-grid">
         {field('environment', '交易环境', { choices: options({ sandbox: '沙箱', live: '正式' }) })}
         {field('action', '接口操作', { choices: options(actions) })}
-        {!query && field('request_id', '幂等请求编号', { required: true })}
+        {!query && field('request_id', '幂等请求编号', { required: true, tip: '同一操作遇到超时或结果未知时，重试请使用原编号。' })}
         {query && field('query_request', '请求编号（或填写清算订单 ID）')}
         {(hasOrder || query) && field('order_id', '清算订单 ID', { required: hasOrder })}
         {create && <>
@@ -228,27 +251,31 @@ function Console({ merchant, refresh }) {
   </Panel>;
 }
 
-export function Admin({ user, online }) {
-  const info = useLoad(user?.admin ? 'admin' : null, 5000);
+export function Admin({ user, online, section }) {
+  const system = section === 'plugin' || section === 'review';
+  const info = useLoad(user?.admin && system ? 'admin' : null, 5000);
   const [key, setKey] = useState('');
   const [decision, setDecision] = useState({});
   const flow = useAction();
   if (!user?.admin) return <Panel title="需要超级管理员权限" />;
   return <>
-    <PageTitle title="系统管理" description="连接 Minecraft 游戏端，复核执行结果不确定的资金流水。" />
-    <Panel title="Bukkit 插件连接" action={<Tag color={online ? 'success' : 'gray'}>{online ? '在线' : '未连接'}</Tag>}>
+    <PageTitle title={{
+      plugin: 'Bukkit 插件连接', review: '资金操作复核', cards: '平台预付卡发行',
+      bind: '代玩家绑卡', 'card-events': '发行卡片使用记录', fund: '平台卡折扣补贴金',
+    }[section]} />
+    {system && <Feedback error={flow.error ?? info.error} success={flow.success} />}
+    {section === 'plugin' && <Panel title="插件公钥" action={<Badge status={online ? 'success' : 'default'} text={online ? '在线' : '未连接'} />}>
       <form className="stack" onSubmit={event => {
         event.preventDefault();
         flow.run(async () => { await api('plugin', { public_key: key }); setKey(''); info.reload(); }, '插件公钥已保存');
       }}>
         <Text className="muted">{info.data?.plugin_set ? '已登记插件公钥' : '尚未登记插件公钥'}</Text>
-        <Field name="plugin-key" label="插件 SM2 公钥 PEM" type="area" value={key} onChange={setKey} required />
+        <Field name="plugin-key" label="插件 SM2 公钥 PEM" tip="粘贴游戏端插件的 PEM 公钥，包含开头和结尾标记。" type="area" value={key} onChange={setKey} required />
         <Flexbox horizontal><Button type="primary" className="primary" htmlType="submit" loading={flow.busy}>登记游戏端</Button></Flexbox>
       </form>
-    </Panel>
-    <Feedback error={flow.error ?? info.error} success={flow.success} />
-    <CardIssuer issuer="" />
-    <Panel title="资金操作复核">
+    </Panel>}
+    <CardIssuer issuer="" section={section} />
+    {section === 'review' && <Panel title="复核记录">
       {!info.data && !info.error && <Loading />}
       {info.data?.reviews.length === 0 && <Empty>暂无需要复核的资金操作。</Empty>}
       {info.data?.reviews.map(row => <div key={row.id} className="record review">
@@ -266,6 +293,6 @@ export function Admin({ user, online }) {
           <Flexbox horizontal><Button htmlType="submit" disabled={!decision[row.id]} loading={flow.busy}>确认复核</Button></Flexbox>
         </form>}
       </div>)}
-    </Panel>
+    </Panel>}
   </>;
 }

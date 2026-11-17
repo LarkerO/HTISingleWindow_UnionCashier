@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Divider, Flexbox, Tag, Text } from '@lobehub/ui';
+import { Alert, Badge, Button, Descriptions, Divider, Flexbox, Statistic, Tag, Text } from '@lobehub/ui';
 import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, Panel, products, rails, SignIn, State, useAction, useLoad } from './shared';
 
 import { PaymentLimits, Statement } from './Statements';
 
-export function Account({ user, online }) {
+export function Account({ user, online, section = 'account' }) {
   const account = useLoad(user ? 'account' : null, 4000);
   const action = useAction();
   if (!user) {
@@ -25,39 +25,42 @@ export function Account({ user, online }) {
     </>;
   }
   const accountData = account.data;
+  const agreements = section === 'agreements';
+  const title = { account: '账户概览', orders: '交易记录', agreements: '免密签约', limits: '支付限额', statement: '付款对账' }[section];
+  const orders = accountData?.orders.filter(order => (order.kind === 'agreement') === agreements);
   const displayName = user.name || user.hydroline_id;
   return <>
-    <PageTitle title="玩家面板" description={'已通过 HydCraft Portal 登录 · ' + displayName}
-      action={<Tag color={online ? 'success' : 'gray'}>{online ? '游戏端在线' : '游戏端未连接'}</Tag>} />
-    <div className="service-grid account-grid">
+    <PageTitle title={title} description={section === 'account' ? displayName : undefined}
+      action={section === 'account' && <Badge status={online ? 'success' : 'default'} text={online ? '游戏端在线' : '游戏端未连接'} />} />
+    {section === 'account' && <Flexbox className="service-grid account-grid">
       <Panel title="Minecraft 玩家">
-        <Text as="p">{user.minecraft_name ?? '尚未绑定'}</Text>
+        <Descriptions column={1} colon={false} items={[
+          { label: '游戏名称', children: user.minecraft_name ?? '尚未绑定' },
+          { label: '清算账号 ID', children: user.id },
+        ]} />
         {!user.uuid && <Text as="p" className="muted">请在 Portal 绑定 Minecraft 玩家、公开玩家档案后重新登录。</Text>}
-        <Text as="p" className="muted">清算账号 ID {user.id}</Text>
       </Panel>
       <Panel title="游戏内余额" action={<Button disabled={!user.uuid} loading={action.busy}
         onClick={() => action.run(async () => { await api('balance', {}); account.reload(); })}>查询</Button>}>
-        <div className="balances">
-          {Object.entries(rails).map(([method, label]) => <div key={method}>
-            <Text as="p" className="muted">{label}</Text>
-            <Text className="amount">{money(accountData?.balance?.values?.[method])}</Text>
-          </div>)}
-        </div>
+        <Flexbox className="balances">
+          {Object.entries(rails).map(([method, label]) => <Statistic key={method} title={label}
+            value={money(accountData?.balance?.values?.[method])} />)}
+        </Flexbox>
         {accountData?.balance?.requested && <Text className="muted">请求时间 {date(accountData.balance.requested)}</Text>}
       </Panel>
-    </div>
+    </Flexbox>}
     <Feedback error={action.error ?? account.error} />
-    <PaymentLimits />
-    <Statement />
-    <Panel title="交易与协议" subtitle="查看本账号提交的订单、预授权和签约">
+    {section === 'limits' && <PaymentLimits />}
+    {section === 'statement' && <Statement />}
+    {(section === 'orders' || agreements) && <Panel title={agreements ? '签约记录' : '订单与预授权'}>
       {!accountData && !account.error && <Loading />}
-      {accountData?.orders.length === 0 && <Empty>目前没有交易或签约记录。</Empty>}
-      {accountData?.orders.map(order => <OrderRow key={order.id} order={order} action={order.kind === 'agreement' && order.status === 'active' &&
+      {orders?.length === 0 && <Empty>{agreements ? '暂无签约记录。' : '暂无交易记录。'}</Empty>}
+      {orders?.map(order => <OrderRow key={order.id} order={order} action={order.kind === 'agreement' && order.status === 'active' &&
         <Button danger loading={action.busy} onClick={() => action.run(async () => {
           await api('checkout', { id: order.id, action: 'revoke' });
           account.reload();
         })}>解约</Button>} />)}
-    </Panel>
+    </Panel>}
   </>;
 }
 

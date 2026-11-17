@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Flexbox, Image, Tag, Text, Upload } from '@lobehub/ui';
+import { Block, Button, Flexbox, Image, Switch, Tag, Text, Upload } from '@lobehub/ui';
 import { api, date, Empty, Feedback, Field, Loading, money, options, Panel, products, rails, randomId, State, useAction, useLoad } from './shared';
 
 const cardEvents = {
@@ -20,7 +20,7 @@ function Artwork({ type }) {
   </div>;
 }
 
-export function PlayerCards({ user }) {
+export function PlayerCards({ user, section }) {
   const resource = useLoad('cards', 2500);
   const flow = useAction();
   const [rail, setRail] = useState('vault');
@@ -44,15 +44,16 @@ export function PlayerCards({ user }) {
     }, message);
   };
   return <>
-    <Panel title="预付卡商城" subtitle="购卡后可立即激活，也可将未激活的卡号和卡密赠予他人。">
+    <Feedback error={flow.error ?? resource.error} success={flow.success} />
+    {!resource.data && !resource.error && <Loading />}
+    {section === 'cards' && <Panel action={<Button href="#activate">查看购卡结果</Button>} title="预付卡商城" subtitle="购卡后可立即激活，也可将未激活的卡号和卡密赠予他人。">
       <div className="form-grid">
         <Field name="card-env" label="环境" choices={options({ live: '正式', sandbox: '沙箱' })} value={env} onChange={setEnv} />
         <Field name="card-rail" label="购卡支付方式" choices={options(rails)} value={rail} onChange={setRail} />
       </div>
-      {!resource.data && !resource.error && <Loading />}
       {resource.data?.catalog.length === 0 && <Empty>暂无可购买的卡种。</Empty>}
       <div className="service-grid">
-        {resource.data?.catalog.map(type => <div className="card-product stack" key={type.id}>
+        {resource.data?.catalog.map(type => <Block className="card-product stack" key={type.id}>
           <Artwork type={type} />
           <Text as="strong">{type.name} · 面值 {money(type.face)}</Text>
           <Text className="muted">{type.issuer ? '商户专用' : '平台发行'} · {type.kinds.map(kind => products[kind]).join('、')}</Text>
@@ -61,11 +62,10 @@ export function PlayerCards({ user }) {
             onClick={() => submit('buy', { type: type.id, rail, environment: env }, 'buy:' + type.id + ':' + env + ':' + rail, '购卡请求已提交')}>
             {money(type.price)} 购买
           </Button>
-        </div>)}
+        </Block>)}
       </div>
-    </Panel>
-    <Feedback error={flow.error ?? resource.error} success={flow.success} />
-    <Panel title="激活预付卡">
+    </Panel>}
+    {section === 'activate' && <Panel title="激活预付卡" subtitle="在此查看购卡结果、领取卡密或激活已有预付卡。">
       <form className="stack" onSubmit={event => {
         event.preventDefault();
         flow.run(async () => { await api('cards', { ...redeem, action: 'redeem' }); setRedeem({}); resource.reload(); }, '预付卡已激活');
@@ -89,8 +89,8 @@ export function PlayerCards({ user }) {
           }, '预付卡已激活')}>立即兑换</Button></Flexbox>
         </>}
       </div>)}
-    </Panel>
-    <Panel title="我的预付卡">
+    </Panel>}
+    {section === 'wallet' && <Panel title="我的预付卡">
       {resource.data?.cards.length === 0 && <Empty>暂无已激活的预付卡。</Empty>}
       {resource.data?.cards.map(card => <div key={card.number} className="record stack">
         <Flexbox horizontal gap={10} wrap="wrap"><Text as="strong">{card.terms.name}</Text>
@@ -116,8 +116,8 @@ export function PlayerCards({ user }) {
           </> : <Button danger disabled={!!card.locks} onClick={() => setReturnCard(card.number)}>退卡</Button>}
         </Flexbox>}
       </div>)}
-    </Panel>
-    <Panel title="预付卡使用记录">
+    </Panel>}
+    {section === 'card-events' && <Panel title="预付卡使用记录">
       <Field name="card-event-filter" label="卡片" choices={[{ value: '', label: '全部卡片' }, ...Array.from(new Set((resource.data?.events ?? []).map(event => event.number)),
         number => ({ value: number, label: number }))]} value={eventCard} onChange={setEventCard} />
       {resource.data?.events.filter(event => !eventCard || event.number === eventCard).map(event => <Flexbox key={event.id} className="record" gap={4}>
@@ -125,7 +125,7 @@ export function PlayerCards({ user }) {
         <Text className="muted">{date(event.time)} · {event.number}{event.order_id ? ' · ' + event.order_id : ''}</Text>
       </Flexbox>)}
       {resource.data?.events.length === 0 && <Empty>暂无记录。</Empty>}
-    </Panel>
+    </Panel>}
   </>;
 }
 
@@ -134,8 +134,9 @@ const defaults = issuer => ({
   merchants: [], combine: false, transfer: false, transfer_fee: 0, refund: 100, refund_fee: 0, active: true,
 });
 
-export function CardIssuer({ issuer }) {
-  const resource = useLoad('card-types?issuer=' + encodeURIComponent(issuer), 6000);
+export function CardIssuer({ issuer, section = 'cards' }) {
+  const visible = ['cards', 'bind', 'card-events', 'fund'].includes(section);
+  const resource = useLoad(visible ? 'card-types?issuer=' + encodeURIComponent(issuer) : null, 6000);
   const [lookup, setLookup] = useState('');
   const [form, setForm] = useState(() => defaults(issuer));
   const [binding, setBinding] = useState({});
@@ -143,8 +144,10 @@ export function CardIssuer({ issuer }) {
   const flow = useAction();
   const field = (name, label, attributes = {}) => <Field label={label} name={'issue-' + name} value={form[name]}
     onChange={value => setForm(previous => ({ ...previous, [name]: value }))} {...attributes} />;
-  const bool = (key, label) => <Button aria-pressed={form[key]} className={form[key] ? 'selected' : ''}
-    onClick={() => setForm(previous => ({ ...previous, [key]: !previous[key] }))}>{label}</Button>;
+  const bool = (key, label) => <Flexbox horizontal align="center" gap={8} as="label">
+    <Switch aria-label={label} checked={form[key]} onChange={checked => setForm(previous => ({ ...previous, [key]: checked }))} />
+    <Text>{label}</Text>
+  </Flexbox>;
   const numeric = (name, label, attributes = {}) => field(name, label, { type: 'number', min: 0, step: 1, required: true, ...attributes });
   function upload(file, side) {
     flow.run(async () => {
@@ -160,8 +163,10 @@ export function CardIssuer({ issuer }) {
     }, '卡面已上传');
     return false;
   }
+  if (!visible) return null;
   return <>
-    <Panel title={issuer ? '商户预付卡发行' : '平台预付卡发行'} subtitle={issuer ? '该系列仅可在本商户使用。' : '平台卡可按商户白名单或黑名单限制使用。'}>
+    <Feedback error={flow.error ?? resource.error} success={flow.success} />
+    {section === 'cards' && <Panel title={issuer ? '商户预付卡发行' : '平台预付卡发行'} subtitle={issuer ? '该系列仅可在本商户使用。' : '平台卡可按商户白名单或黑名单限制使用。'}>
       <Flexbox horizontal gap={8} wrap="wrap">
         <Button onClick={() => setForm(defaults(issuer))}>新建卡种</Button>
         {resource.data?.types.map(type => <Button key={type.id} onClick={() => setForm({
@@ -208,11 +213,10 @@ export function CardIssuer({ issuer }) {
           </Flexbox>)}
         </Flexbox>
         {(form.front || form.back) && <Artwork type={form} />}
-        <Feedback error={flow.error ?? resource.error} success={flow.success} />
         <Flexbox horizontal><Button type="primary" className="primary" htmlType="submit" loading={flow.busy}>保存卡种</Button></Flexbox>
       </form>
-    </Panel>
-    <Panel title="代玩家绑定卡片">
+    </Panel>}
+    {section === 'bind' && <Panel title="代玩家绑定卡片">
       <form className="stack" onSubmit={event => {
         event.preventDefault();
         flow.run(async () => { await api('cards', { ...binding, action: 'bind', issuer }); setBinding({}); }, '预付卡已绑定');
@@ -224,16 +228,16 @@ export function CardIssuer({ issuer }) {
         </div>
         <Flexbox horizontal><Button htmlType="submit" loading={flow.busy}>绑定卡片</Button></Flexbox>
       </form>
-    </Panel>
-    <Panel title="发行卡片使用记录">
+    </Panel>}
+    {section === 'card-events' && <Panel title="发行卡片使用记录">
       <Field name="issuer-card-event" label="输入卡号筛选" value={lookup} onChange={setLookup} />
       {resource.data?.events.filter(event => lookup ? event.number === lookup.trim() : true).slice(0, 50).map(event =>
         <Flexbox key={event.id} className="record" gap={4}><Text as="strong">{cardEvents[event.event]} · {money(event.amount)}</Text>
           <Text className="muted">{date(event.time)} · {event.number}{event.order_id ? ' · ' + event.order_id : ''}</Text>
         </Flexbox>)}
       {resource.data?.events.filter(event => !lookup || event.number === lookup.trim()).length === 0 && <Empty>暂无记录。</Empty>}
-    </Panel>
-    {!issuer && <Panel title="平台卡折扣补贴金" subtitle="通过管理员游戏钱包充值后，可按支付方式承担平台卡折扣差额。">
+    </Panel>}
+    {!issuer && section === 'fund' && <Panel title="平台卡折扣补贴金" subtitle="通过管理员游戏钱包充值后，可按支付方式承担平台卡折扣差额。">
       <form className="stack" onSubmit={event => {
         event.preventDefault();
         flow.run(async () => {

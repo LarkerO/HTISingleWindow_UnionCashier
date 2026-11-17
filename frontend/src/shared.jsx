@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Alert, Block, Button, Flexbox, Input, InputPassword, Select, Spin, Tag, Text, TextArea } from '@lobehub/ui';
+import { ActionIcon, Alert, Block, Button, Empty as LobeEmpty, Flexbox, Input, InputPassword, Select, Spin, Tag, Text, TextArea } from '@lobehub/ui';
+
+import { CircleHelp } from 'lucide-react';
 
 let token;
 
@@ -48,7 +50,7 @@ export function Panel({ title, subtitle, action, children, className = '' }) {
   </Block>;
 }
 
-export function Field({ label, name, value, onChange, type = 'text', required = false, choices, ...attributes }) {
+export function Field({ label, name, value, onChange, type = 'text', required = false, choices, tip, ...attributes }) {
   const id = name;
   let node;
   if (choices) {
@@ -59,7 +61,10 @@ export function Field({ label, name, value, onChange, type = 'text', required = 
       value={value ?? ''} onChange={e => onChange(e.target.value)} required={required} {...attributes} />;
   }
   return <Flexbox gap={6} className="field">
-    <Text as="label" htmlFor={choices ? undefined : id}>{label}</Text>
+    <Flexbox horizontal gap={4} align="center">
+      <Text as="label" htmlFor={choices ? undefined : id}>{label}</Text>
+      {tip && <ActionIcon icon={CircleHelp} size="small" title={tip} aria-label={label + '说明'} />}
+    </Flexbox>
     {node}
   </Flexbox>;
 }
@@ -122,7 +127,7 @@ export function Loading() {
 }
 
 export function Empty({ children }) {
-  return <Text as="p" className="empty muted">{children}</Text>;
+  return <LobeEmpty className="empty" description={children} />;
 }
 
 export function SignIn({ checkout }) {
