@@ -39,7 +39,8 @@ try {
     }
     $envelope = Config::decode($raw);
     if (!isset($envelope['signature'])) {
-        throw new RuntimeException('No signed response (HTTP ' . $status . '): ' . ($envelope['error'] ?? 'unknown error'));
+        $code = $envelope['code'] ?? 'UNKNOWN_ERROR';
+        throw new RuntimeException('No signed response (HTTP ' . $status . ', ' . $code . '): ' . ($envelope['error'] ?? 'unknown error'));
     }
     $response = Crypto::open($bin, $envelope, $private, $platform, 'merchant-response');
     foreach (['merchant', 'key_id', 'environment', 'challenge', 'request_id'] as $name) {

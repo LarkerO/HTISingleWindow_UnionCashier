@@ -121,6 +121,19 @@ expect($debit['request']['status'] === 'completed' && $db->get('card', $ticket['
 $clearing->playerAction($buyer, $agreement['id'], 'revoke');
 rejects(fn () => $command(['action' => 'debit', 'request_id' => 'revoked', 'order_id' => $agreement['id'], 'amount' => 1]));
 
+$merchantAgreement = $create('agreement', 'agreement-merchant', 0);
+$clearing->playerAction($buyer, $merchantAgreement['id'], 'confirm', ['vault']);
+$merchantRevoke = ['action' => 'revoke', 'request_id' => 'merchant-revoke', 'order_id' => $merchantAgreement['id']];
+rejects(fn () => $clearing->command($other, 'sandbox', $merchantRevoke, true));
+expect($command($merchantRevoke)['order']['status'] === 'revoked', 'Merchant can revoke only its own agreement');
+expect($command($merchantRevoke)['request']['status'] === 'completed', 'Merchant revoke is idempotent');
+try {
+    $command(['action' => 'debit', 'request_id' => 'charge-after-revoke', 'order_id' => $merchantAgreement['id'], 'amount' => 1]);
+    throw new RuntimeException('Revoked agreement accepted a debit');
+} catch (Fault $fault) {
+    expect($fault->errorCode() === 'AGREEMENT_INACTIVE' && $fault->status === 409, 'Stable agreement error code');
+}
+
 $clearing->limits->save('buyer', ['method' => 'scoreboard', 'single' => 10, 'count' => 2]);
 $one = $create('pay', 'one', 10);
 $clearing->playerAction($buyer, $one['id'], 'confirm', ['scoreboard']);

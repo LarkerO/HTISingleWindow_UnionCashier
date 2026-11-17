@@ -137,7 +137,7 @@ final class Clearing
 
     public function order(string $id): array
     {
-        return $this->db->get('order', $id) ?? throw new Fault('订单不存在', 404);
+        return $this->db->get('order', $id) ?? throw new Fault('订单不存在', 404, 'ORDER_NOT_FOUND');
     }
 
     public function command(array $merchant, string $env, array $data, bool $console = false): array
@@ -170,7 +170,7 @@ final class Clearing
             $existing = $this->db->get('request', $key);
             if ($existing) {
                 if (!hash_equals($existing['fingerprint'], $fingerprint)) {
-                    throw new Fault('同一请求编号已用于不同参数', 409);
+                    throw new Fault('同一请求编号已用于不同参数', 409, 'IDEMPOTENCY_CONFLICT');
                 }
                 return $this->requestResult($existing);
             }
@@ -178,10 +178,10 @@ final class Clearing
             $product = match ($action) {
                 'create' => self::text($data, 'kind'),
                 'capture' => 'hold',
-                'debit' => 'agreement',
+                'debit', 'revoke' => 'agreement',
                 'refund', 'split', 'payout' => $action,
                 'card_bind' => null,
-                default => throw new Fault('未知接口', 404),
+                default => throw new Fault('未知接口', 404, 'UNKNOWN_ACTION'),
             };
             if ($product !== null && !in_array($product, self::PRODUCTS, true)) {
                 throw new Fault('未知产品');
@@ -194,6 +194,15 @@ final class Clearing
                 $request['result_order'] = $order['id'];
             } elseif ($action === 'card_bind') {
                 $request['card'] = $this->cards->redeem(self::text($data, 'user'), $data, $merchant['id'], $env);
+            } elseif ($action === 'revoke') {
+                $order = $this->ownedOrder($merchant, $env, self::text($data, 'order_id'));
+                if ($order['kind'] !== 'agreement' || !in_array($order['status'], ['active', 'revoked'], true)) {
+                    throw new Fault('签约尚未生效或订单类型不符', 409, 'AGREEMENT_INACTIVE');
+                }
+                if ($order['status'] === 'active') {
+                    $this->revokeAgreement($order);
+                }
+                $request['result_order'] = $order['id'];
             } elseif (in_array($action, ['capture', 'debit', 'refund'], true)) {
                 $this->orderOperation($merchant, $env, $data, $request);
             } else {
@@ -207,10 +216,10 @@ final class Clearing
     private function requireMerchant(array $merchant, string $env, ?string $product = null, bool $console = false): void
     {
         if ($env === 'live' && $merchant['state'] !== 'approved') {
-            throw new Fault('商户尚未获准正式交易', 403);
+            throw new Fault('商户尚未获准正式交易', 403, 'MERCHANT_NOT_APPROVED');
         }
         if ($product && (!$console || $env === 'live') && !in_array($product, $merchant['products'], true)) {
-            throw new Fault('商户未开通该产品', 403);
+            throw new Fault('商户未开通该产品', 403, 'PRODUCT_DISABLED');
         }
     }
 
@@ -222,7 +231,7 @@ final class Clearing
     private function requestResult(?array $request): array
     {
         if (!$request) {
-            throw new Fault('请求不存在', 404);
+            throw new Fault('请求不存在', 404, 'REQUEST_NOT_FOUND');
         }
         unset($request['fingerprint'], $request['id']);
         if (isset($request['result_order'])) {
@@ -235,7 +244,7 @@ final class Clearing
     {
         $order = $this->order($id);
         if ($order['merchant'] !== $merchant['id'] || $order['env'] !== $env) {
-            throw new Fault('订单不存在', 404);
+            throw new Fault('订单不存在', 404, 'ORDER_NOT_FOUND');
         }
         return $order;
     }
@@ -250,13 +259,13 @@ final class Clearing
         if ($return !== '') {
             Config::url($return);
             if (!in_array(Config::origin($return), $merchant['origins'], true)) {
-                throw new Fault('返回地址来源未在商户后台登记');
+                throw new Fault('返回地址来源未在商户后台登记', 400, 'RETURN_ORIGIN_DENIED');
             }
         }
         $number = self::text($data, 'out_trade_no');
         $reference = openssl_digest(Config::json([$merchant['id'], $env, $number]), 'sm3');
         if ($this->db->get('out_trade', $reference)) {
-            throw new Fault('商户订单号已存在', 409);
+            throw new Fault('商户订单号已存在', 409, 'DUPLICATE_TRADE_NO');
         }
         $target = empty($data['user']) ? null : $this->user(self::text($data, 'user'))['id'];
         $amount = $kind === 'agreement' ? 0 : self::amount($data['amount'] ?? null);
@@ -304,7 +313,8 @@ final class Clearing
                 if ($order['status'] !== 'active' || $order['kind'] !== 'agreement' || ($order['payer'] ?? '') !== $user['id']) {
                     throw new Fault('当前签约不可解约', 409);
                 }
-                $order['status'] = 'revoked';
+                $this->revokeAgreement($order);
+                return $order;
             } else {
                 if ($order['status'] !== 'pending' || $order['expires'] < time()) {
                     throw new Fault('订单已处理、处理中或已过期', 409);
@@ -344,6 +354,12 @@ final class Clearing
         });
     }
 
+    private function revokeAgreement(array &$order): void
+    {
+        $order['status'] = 'revoked';
+        $this->saveOrder($order);
+    }
+
     public function wallet(array $user, string $env, bool $required = true): ?string
     {
         if ($env === 'sandbox') {
@@ -371,7 +387,7 @@ final class Clearing
         $request += ['order_id' => $order['id'], 'amount' => $amount];
         if ($action === 'debit') {
             if ($order['kind'] !== 'agreement' || $order['status'] !== 'active') {
-                throw new Fault('签约未生效或已解约', 409);
+                throw new Fault('签约未生效或已解约', 409, 'AGREEMENT_INACTIVE');
             }
             $this->limits->merchant($merchant, $env, $amount);
             $id = Config::token();
@@ -396,18 +412,18 @@ final class Clearing
             return;
         }
         if (isset($order['pending_request'])) {
-            throw new Fault('订单已有未完成的资金操作', 409);
+            throw new Fault('订单已有未完成的资金操作', 409, 'OPERATION_IN_PROGRESS');
         }
         if ($action === 'capture') {
             if ($order['status'] !== 'held' || $amount > $order['amount']) {
-                throw new Fault('订单未冻结或超出冻结金额', 409);
+                throw new Fault('订单未冻结或超出冻结金额', 409, 'INVALID_CAPTURE');
             }
             $before = $order['amount'];
             $after = $amount;
         } else {
             $before = ($order['captured'] ?? 0) - $order['refunded'];
             if ($order['status'] !== 'paid' || $amount > $before) {
-                throw new Fault('订单不可退款或超出可退金额', 409);
+                throw new Fault('订单不可退款或超出可退金额', 409, 'INVALID_REFUND');
             }
             $after = $before - $amount;
         }
@@ -611,7 +627,7 @@ final class Clearing
         $id = "$merchant:$env:$rail";
         $row = $this->db->get('ledger', $id) ?? ['env' => $env, 'rail' => $rail, 'balance' => 0];
         if ($row['balance'] + $delta < 0 || ($requireMatured && $this->available($merchant, $row) + $delta < 0)) {
-            throw new Fault('该支付方式的可用余额不足或仍在清算期', 409);
+            throw new Fault('该支付方式的可用余额不足或仍在清算期', 409, 'MERCHANT_FUNDS_UNAVAILABLE');
         }
         $row['balance'] += $delta;
         $this->db->put('ledger', $id, $row, $merchant);

@@ -65,12 +65,12 @@ final class Crypto
             $base64 = $envelope[$name] ?? null;
             if (!is_string($base64) || strlen($base64) > 131072 || ($value = base64_decode($base64, true)) === false
                 || base64_encode($value) !== $base64) {
-                throw new Fault('无效加密报文', 401);
+                throw new Fault('无效加密报文', 401, 'INVALID_ENVELOPE');
             }
             $raw[$name] = $value;
         }
         if (strlen($raw['iv']) !== 12 || strlen($raw['tag']) !== 16) {
-            throw new Fault('无效加密报文', 401);
+            throw new Fault('无效加密报文', 401, 'INVALID_ENVELOPE');
         }
         try {
             return self::withFiles(['private' => $private, 'peer' => $peer, 'sig' => $raw['signature']],
@@ -85,7 +85,7 @@ final class Crypto
                     return $plain === false ? throw new \RuntimeException('Invalid ciphertext') : Config::decode($plain);
                 });
         } catch (\RuntimeException | \JsonException) {
-            throw new Fault('报文验签或解密失败', 401);
+            throw new Fault('报文验签或解密失败', 401, 'INVALID_ENVELOPE');
         }
     }
 

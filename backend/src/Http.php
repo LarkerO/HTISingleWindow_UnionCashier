@@ -364,29 +364,29 @@ final class Http
             $id = (string) $request->header('x-merchant-id', '');
             $keyId = (string) $request->header('x-key-id', '');
             if (!preg_match('/\A[0-9a-f]{32}\z/', $id) || !preg_match('/\A[0-9a-f]{32}\z/', $keyId)) {
-                throw new Fault('需要商户号和 API Key', 401);
+                throw new Fault('需要商户号和 API Key', 401, 'INVALID_CREDENTIALS');
             }
             $merchant = $db->get('merchant', $id);
             if (!$merchant || ($merchant['key_id'] ?? '') !== $keyId) {
-                throw new Fault('商户密钥无效', 401);
+                throw new Fault('商户密钥无效', 401, 'INVALID_CREDENTIALS');
             }
             $input = Crypto::open($config['openssl'], $this->body($request), $config['keys']['private'],
                 $merchant['public_key'], 'merchant-request');
-            $environment = Clearing::text($input, 'environment');
-            Clearing::text($input, 'challenge', 100);
             if (($input['merchant'] ?? '') !== $id || ($input['key_id'] ?? '') !== $keyId
                 || !is_int($input['timestamp'] ?? null) || abs(time() - $input['timestamp']) > 300) {
-                throw new Fault('报文归属或时间戳无效', 401);
+                throw new Fault('报文归属或时间戳无效', 401, 'INVALID_REQUEST_CONTEXT');
             }
+            $challenge = Clearing::text($input, 'challenge', 100);
+            $environment = is_string($input['environment'] ?? null) ? $input['environment'] : '';
             try {
                 $payload = ['ok' => true, 'result' => $clearing->command($merchant, $environment, $input)];
                 $status = 200;
             } catch (Fault $error) {
-                $payload = ['ok' => false, 'error' => $error->getMessage()];
+                $payload = ['ok' => false, 'code' => $error->errorCode(), 'error' => $error->getMessage()];
                 $status = $error->status;
             }
             $payload += ['merchant' => $id, 'key_id' => $keyId, 'environment' => $environment,
-                'request_id' => $input['request_id'] ?? null, 'timestamp' => time(), 'challenge' => $input['challenge'] ?? null];
+                'request_id' => $input['request_id'] ?? null, 'timestamp' => time(), 'challenge' => $challenge];
             $sealed = Crypto::seal($config['openssl'], $config['keys']['private'], $merchant['public_key'],
                 'merchant-response', $payload);
             return $this->json($sealed, $status);
@@ -453,12 +453,12 @@ final class Http
         try {
             return $callback();
         } catch (Fault $e) {
-            return $this->json(['error' => $e->getMessage()], $e->status);
+            return $this->json(['code' => $e->errorCode(), 'error' => $e->getMessage()], $e->status);
         } catch (\JsonException | \TypeError) {
-            return $this->json(['error' => '请求参数格式错误'], 400);
+            return $this->json(['code' => 'INVALID_PARAMETER', 'error' => '请求参数格式错误'], 400);
         } catch (\Throwable $e) {
             error_log('Cashier request failed: ' . get_class($e) . ' at ' . basename($e->getFile()) . ':' . $e->getLine());
-            return $this->json(['error' => '清算服务暂不可用'], 500);
+            return $this->json(['code' => 'INTERNAL_ERROR', 'error' => '清算服务暂不可用'], 500);
         }
     }
 

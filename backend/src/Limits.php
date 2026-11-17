@@ -21,7 +21,7 @@ final class Limits
         $monthly = $rules['monthly'] ?? 0;
         $count = $rules['count'] ?? 0;
         if ($single > 0 && $amount > $single) {
-            throw new Fault('超出商户单笔收款限额', 409);
+            throw new Fault('超出商户单笔收款限额', 409, 'MERCHANT_LIMIT_EXCEEDED');
         }
         if (!$monthly && !$count) {
             return;
@@ -40,7 +40,7 @@ final class Limits
             $orders++;
         }
         if (($monthly > 0 && $total + $amount > $monthly) || ($count > 0 && $orders >= $count)) {
-            throw new Fault('商户本月收款额度或笔数已用完', 409);
+            throw new Fault('商户本月收款额度或笔数已用完', 409, 'MERCHANT_LIMIT_EXCEEDED');
         }
     }
 

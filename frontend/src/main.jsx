@@ -63,7 +63,6 @@ function App() {
     </main>
     <footer className="shell footer">
       <Text>氢气工艺服务器 · 统一支付清算</Text>
-      <Text>使用 HarmonyOS Sans 字体 · © 2021 华为终端有限公司</Text>
     </footer>
   </>;
 }

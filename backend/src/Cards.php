@@ -185,7 +185,7 @@ final class Cards
         $card = $this->db()->get('card', $number);
         if (!$card || $card['state'] !== 'unclaimed' || ($env !== null && $card['env'] !== $env) || ($issuer !== null && $card['terms']['issuer'] !== $issuer)
             || !hash_equals($card['secret_hash'], $this->secretHash($number, $secret))) {
-            throw new Fault('卡号或卡密无效，或卡片不可激活', 409);
+            throw new Fault('卡号或卡密无效，或卡片不可激活', 409, 'CARD_NOT_REDEEMABLE');
         }
         $this->clearing->user($owner);
         unset($card['secret_hash']);

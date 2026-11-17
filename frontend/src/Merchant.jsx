@@ -152,7 +152,7 @@ function MerchantMembers({ merchant, refresh }) {
   </Panel>;
 }
 
-const actions = { create: '创建订单', query: '查询', capture: '解除／结算预授权', debit: '免密扣款', refund: '退款', split: '分账给玩家', payout: '提现至玩家' };
+const actions = { create: '创建订单', query: '查询', capture: '解除／结算预授权', debit: '免密扣款', revoke: '商户解约', refund: '退款', split: '分账给玩家', payout: '提现至玩家' };
 const defaultForm = () => ({ environment: 'sandbox', action: 'create', kind: 'pay', rail: 'vault', request_id: randomId() });
 
 function Console({ merchant, refresh }) {
@@ -163,8 +163,8 @@ function Console({ merchant, refresh }) {
   const a = form.action;
   const query = a === 'query';
   const create = a === 'create';
-  const hasAmount = !query && (!create || form.kind !== 'agreement');
-  const hasOrder = ['capture', 'debit', 'refund'].includes(a);
+  const hasAmount = !query && a !== 'revoke' && (!create || form.kind !== 'agreement');
+  const hasOrder = ['capture', 'debit', 'revoke', 'refund'].includes(a);
   const hasRail = ['split', 'payout'].includes(a);
 
   async function submit(event) {
