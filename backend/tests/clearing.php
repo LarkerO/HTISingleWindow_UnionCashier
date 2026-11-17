@@ -160,6 +160,32 @@ expect($ledger['balance'] === 45 && $clearing->available($merchant['id'], $ledge
 $rows = $command(['action' => 'statement', 'month' => Limits::month()], 'live');
 expect($rows['total'] === 2 && array_sum(array_column($rows['items'], 'amount')) === 45, 'Merchant reconciliation');
 expect($clearing->statements->read('buyer', $other['id'], ['environment' => 'live'])['total'] === 0, 'Player statement merchant scoping');
+$liveRefund = ['action' => 'refund', 'request_id' => 'failed-refund', 'order_id' => $paid['id'], 'amount' => 5];
+$lotKey = $merchant['id'] . ':live:vault:' . $clearing->order($paid['id'])['settlement_at'];
+$command($liveRefund, 'live');
+expect($db->get('settlement_lot', $lotKey)['amount'] === 40, 'Pending refund reserves its own settlement lot');
+$clearing->result($clearing->next('live')['id'], 'declined');
+expect($db->get('settlement_lot', $lotKey)['amount'] === 45, 'Failed refund restores its original settlement lot');
+
+$matured = $clearing->order($paid['id']);
+$matured['id'] = Config::token();
+$matured['settlement_at'] = time() - 60;
+$db->write(fn () => $db->put('order', $matured['id'], $matured, $merchant['id']));
+rejects(fn () => $command(['action' => 'refund', 'request_id' => 'matured-refund',
+    'order_id' => $matured['id'], 'amount' => 5], 'live'));
+expect($clearing->next('live') === null, 'Matured refund cannot consume funds from an unrelated pending lot');
+
+$liveAgreement = $create('agreement', 'live-agreement', 0, 'live');
+$clearing->playerAction($buyer, $liveAgreement['id'], 'confirm', ['vault']);
+$newProfile = array_replace($buyer, ['uuid' => '12345678-4444-4444-8444-123456789abc']);
+$db->write(fn () => Portal::saveProfile($db, $newProfile));
+try {
+    $command(['action' => 'debit', 'request_id' => 'changed-wallet', 'order_id' => $liveAgreement['id'], 'amount' => 5], 'live');
+    throw new RuntimeException('Live agreement accepted a debit against a different wallet');
+} catch (Fault $fault) {
+    expect($fault->errorCode() === 'AGREEMENT_INACTIVE', 'Changed wallet requires renewed authorization');
+}
+expect($clearing->next('live') === null, 'Changed wallet did not queue a debit');
 if (isset($argv[1])) {
     file_put_contents($argv[1], Statements::xlsx($rows['items']));
 }

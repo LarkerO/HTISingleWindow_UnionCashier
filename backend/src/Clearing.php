@@ -389,12 +389,16 @@ final class Clearing
             if ($order['kind'] !== 'agreement' || $order['status'] !== 'active') {
                 throw new Fault('签约未生效或已解约', 409, 'AGREEMENT_INACTIVE');
             }
+            $wallet = $this->wallet($this->user($order['payer']), $env, false);
+            if ($wallet !== ($order['uuid'] ?? null)) {
+                throw new Fault('签约钱包已变更，请重新签约', 409, 'AGREEMENT_INACTIVE');
+            }
             $this->limits->merchant($merchant, $env, $amount);
             $id = Config::token();
             $payment = [
                 'id' => $id, 'merchant' => $order['merchant'], 'merchant_name' => $order['merchant_name'],
                 'env' => $env, 'kind' => 'pay', 'status' => 'processing', 'title' => $order['title'],
-                'payer' => $order['payer'], 'uuid' => $this->wallet($this->user($order['payer']), $env, false), 'methods' => $order['methods'],
+                'payer' => $order['payer'], 'uuid' => $wallet, 'methods' => $order['methods'],
                 'amount' => $amount, 'refunded' => 0, 'created' => time(),
                 'out_trade_no' => $request['request_id'], 'agreement_id' => $order['id'],
             ];
@@ -432,7 +436,13 @@ final class Clearing
         $game = null;
         foreach ($request['adjustments'] as $part) {
             if ($action === 'refund') {
-                $this->ledger($order['merchant'], $env, $part['rail'], -$part['amount']);
+                $due = $order['settlement_at'] ?? 0;
+                $unmatured = $due > time();
+                if ($unmatured) {
+                    $this->reduceSettlementLot($order, $part);
+                    $request['reserved_settlement_at'] = $due;
+                }
+                $this->ledger($order['merchant'], $env, $part['rail'], -$part['amount'], 0, true);
             }
             if (!isset($part['card'])) {
                 $game = $part;
@@ -579,20 +589,15 @@ final class Clearing
                 if ($ok && isset($part['card'])) {
                     $this->cards->settle($part['card'], $part['amount'], $order['id'], 'refund', false);
                 } elseif (!$ok) {
-                    $this->ledger($order['merchant'], $order['env'], $part['rail'], $part['amount']);
+                    $this->ledger($order['merchant'], $order['env'], $part['rail'], $part['amount'],
+                        $request['reserved_settlement_at'] ?? 0);
                 }
             }
             if ($ok) {
-                foreach ($request['adjustments'] ?? [] as $part) {
-                    $due = $order['settlement_at'] ?? 0;
-                    if ($due > time()) {
-                        $bucket = "{$order['merchant']}:{$order['env']}:{$part['rail']}";
-                        $key = "$bucket:$due";
-                        $lot = $this->db->get('settlement_lot', $key);
-                        if ($lot) {
-                            $lot['amount'] = max(0, $lot['amount'] - $part['amount']);
-                            $this->db->put('settlement_lot', $key, $lot, $bucket);
-                        }
+                // Pending refunds from older versions did not reserve their settlement lot.
+                if (!isset($request['reserved_settlement_at']) && ($order['settlement_at'] ?? 0) > time()) {
+                    foreach ($request['adjustments'] ?? [] as $part) {
+                        $this->reduceSettlementLot($order, $part);
                     }
                 }
                 if (!array_key_exists('legacy_refunded', $order) && !$this->db->get('statement', $order['id'])) {
@@ -603,6 +608,17 @@ final class Clearing
             }
         }
         $this->saveOrder($order);
+    }
+
+    private function reduceSettlementLot(array $order, array $part): void
+    {
+        $bucket = "{$order['merchant']}:{$order['env']}:{$part['rail']}";
+        $key = $bucket . ':' . $order['settlement_at'];
+        $lot = $this->db->get('settlement_lot', $key);
+        if ($lot) {
+            $lot['amount'] = max(0, $lot['amount'] - $part['amount']);
+            $this->db->put('settlement_lot', $key, $lot, $bucket);
+        }
     }
 
     private function transfer(array $merchant, string $env, array $data, array &$request): void

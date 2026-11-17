@@ -42,7 +42,7 @@ Linux 前台运行 `php start.php start`，后台运行 `php start.php start -d`
 1. 在 Portal 创建 OAuth2 客户端，开通 `profile`，登记 `<清算网站地址>/oauth/callback`。
 2. 打开 `/install`，输入命令生成的安装口令。选择 SQLite 即可创建本地库。使用 MySQL 或 PostgreSQL 时先建空库并授予建表、建索引和读写权限。
 3. 输入 Portal 客户端配置，完成登录测试。该账号成为超级管理员。授权返回后，第三步显示 Portal 登录与平台 SM2 密钥生成结果。失败时可在同一步查看原因并重新授权。
-4. 如果使用反向代理，HTTP 指向 8787，WebSocket upgrade 指向 8788。公网优先使用 HTTPS/WSS，专网和本机可以直接用 HTTP/WS。
+4. 正式安装时，Portal 和清算站点地址必须使用 HTTPS。反向代理可将 HTTP 转发至 8787，将 WebSocket upgrade 转发至 8788。开发环境可直接使用 HTTP/WS。
 
 开发和正式部署共用同一份程序。各实例应使用独立运行时目录、数据库和密钥。前端构建产物由 Webman 同源提供。
 

@@ -221,6 +221,10 @@ final class Http
         if (!in_array($config['mode'], ['development', 'production'], true)) {
             throw new Fault('无效部署环境');
         }
+        if ($config['mode'] === 'production'
+            && (!str_starts_with($config['portal'], 'https://') || !str_starts_with($config['origin'], 'https://'))) {
+            throw new Fault('正式环境的 Portal 和清算站点地址必须使用 HTTPS');
+        }
         if ($driver === 'sqlite') {
             $config['dsn'] = 'sqlite:' . Config::runtime('cashier.sqlite3');
         } elseif (in_array($driver, ['mysql', 'pgsql'], true)) {
