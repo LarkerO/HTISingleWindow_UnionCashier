@@ -71,6 +71,10 @@ rejects(fn () => $db->write(fn () => $clearing->cards->redeem('recipient', $op))
 expect(!isset($clearing->cards->buy($buyer, $purchase)['secret']), 'PIN must disappear after activation');
 
 $hold = $create('hold', 'hold', 120);
+$clearing->cards->type($admin, ['merchants' => [$other['id']]] + $type);
+expect($clearing->paymentCards($clearing->user('buyer'), $hold) === [], 'Updated allowlist prevents use of already issued card');
+$clearing->cards->type($admin, $type);
+expect(count($clearing->paymentCards($clearing->user('buyer'), $hold)) === 1, 'Restoring merchant eligibility affects existing card');
 $clearing->playerAction($buyer, $hold['id'], 'confirm', ['card:' . $number, 'scoreboard']);
 $drain();
 expect($clearing->order($hold['id'])['status'] === 'held', 'Combined preauthorization');

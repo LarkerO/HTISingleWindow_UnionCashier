@@ -292,7 +292,7 @@ final class Clearing
     {
         $order['payer'] = $user['id'];
         return array_values(array_filter($this->db->list('card', $user['id']), fn ($card) =>
-            $this->cards->eligible($order, $card['number'], $order['amount']) !== null));
+            $this->cards->eligible($order, $card['number'], $order['amount'], $this->wallet($user, $order['env'], false) !== null) !== null));
     }
 
     public function playerAction(array $user, string $id, string $action, array $methods = []): array
@@ -447,13 +447,13 @@ final class Clearing
                 if ($reserved) {
                     continue;
                 }
-                $card = $this->cards->eligible($order, substr($method, 5), $remaining);
+                $hasGameFallback = array_intersect($methods, self::RAILS) !== [];
+                $card = $this->cards->eligible($order, substr($method, 5), $remaining, $hasGameFallback);
                 if (!$card) {
                     continue;
                 }
                 $amount = min($remaining, $card['balance']);
-                if (($amount < $remaining && (!$card['terms']['combine'] || !array_intersect($methods, self::RAILS)))
-                    || !$this->limits->canUse($payer, $env, 'card', $amount)) {
+                if (!$this->limits->canUse($payer, $env, 'card', $amount)) {
                     continue;
                 }
                 $this->limits->use($payer, $env, 'card', $month, 1);

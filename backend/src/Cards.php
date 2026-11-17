@@ -250,17 +250,18 @@ final class Cards
         });
     }
 
-    public function eligible(array $order, string $number, int $needed): ?array
+    public function eligible(array $order, string $number, int $needed, bool $allowPartial = true): ?array
     {
         $card = $this->db()->get('card', $number);
         if (!$card || $card['owner'] !== $order['payer'] || $card['env'] !== $order['env'] || $card['state'] !== 'active') {
             return null;
         }
-        $terms = $card['terms'];
-        $listed = in_array($order['merchant'], $terms['merchants'], true);
+        $rules = $this->db()->get('card_type', $card['terms']['id']) ?? $card['terms'];
+        $listed = in_array($order['merchant'], $rules['merchants'], true);
         $kind = isset($order['agreement_id']) ? 'agreement' : $order['kind'];
-        if (($terms['merchant_policy'] === 'whitelist') !== $listed || !in_array($kind, $terms['kinds'], true)
-            || $card['balance'] <= 0 || ($terms['single'] && min($needed, $card['balance']) > $terms['single'])) {
+        if (($rules['merchant_policy'] === 'whitelist') !== $listed || !in_array($kind, $rules['kinds'], true)
+            || $card['balance'] <= 0 || ($rules['single'] && min($needed, $card['balance']) > $rules['single'])
+            || ($needed > $card['balance'] && (!$rules['combine'] || !$allowPartial))) {
             return null;
         }
         return $card;
