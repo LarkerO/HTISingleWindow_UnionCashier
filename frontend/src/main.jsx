@@ -48,9 +48,9 @@ function App() {
       </div>
     </header>
     <main className="shell content">
-      <Feedback error={action.error ?? status.error ?? data?.oauth_error} />
+      <Feedback error={action.error ?? status.error ?? (installation ? null : data?.oauth_error)} />
       {!data && !status.error && <Loading />}
-      {data && (installation ? <Install installed={data.installed} canRetry={data.oauth_setup_retry} />
+      {data && (installation ? <Install installed={data.installed} canRetry={data.oauth_setup_retry} verified={data.oauth_setup_verified} error={data.oauth_error} />
         : checkoutId ? <Checkout id={checkoutId} user={user} />
           : <Tabs className="app-tabs" variant="square" activeKey={tab === 'admin' && !user?.admin ? 'account' : tab}
             onChange={setSection} items={[

@@ -4,9 +4,12 @@ import { api, Feedback, Field, options, PageTitle, Panel, useAction } from './sh
 
 const drivers = { sqlite: 'SQLite', mysql: 'MySQL', pgsql: 'PostgreSQL' };
 
-export default function Install({ installed, canRetry }) {
+export default function Install({ installed, canRetry, verified, error }) {
   const [form, setForm] = useState({ driver: 'sqlite', mode: 'development', origin: location.origin, db_host: '127.0.0.1' });
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() =>
+    installed || canRetry || new URLSearchParams(location.search).get('step') === 'verify' ? 2 : 0);
+  const complete = installed || verified;
+  const current = installed ? 2 : step;
   const action = useAction();
   const field = (name, label, attributes = {}) => <Field label={label} name={'setup-' + name} value={form[name]}
     onChange={value => setForm(previous => ({ ...previous, [name]: value }))} {...attributes} />;
@@ -24,23 +27,27 @@ export default function Install({ installed, canRetry }) {
     });
   }
 
-  if (installed) return <>
-    <PageTitle title="安装向导" />
-    <Panel title="安装已完成"><Button type="primary" className="primary" href="/">进入统一支付清算</Button></Panel>
-  </>;
-
   return <>
     <PageTitle title="安装向导" description="配置清算数据库并用 HydCraft Portal 验证首位超级管理员。" />
-    {canRetry && <Flexbox horizontal><Button href="/oauth/login">使用刚才的配置重新授权</Button></Flexbox>}
     <div className="install-grid">
       <Panel className="installation-steps" title="安装进度">
-        <Steps orientation="vertical" current={step} items={[
+        <Steps orientation="vertical" current={current} items={[
           { title: '运行环境与数据库' },
           { title: 'Portal 登录配置' },
-          { title: '验证登录与生成密钥' },
+          { title: '验证登录与生成密钥', status: installed ? 'finish' : current === 2 && error ? 'error' : undefined },
         ]} />
       </Panel>
-      <Panel title={step === 0 ? '运行环境与数据库' : 'HydCraft Portal'}>
+      {current === 2 ? <Panel title="验证登录与生成密钥">
+        <Text as="p">{complete ? 'Portal 登录已验证。' : 'Portal 登录尚未验证成功。'}</Text>
+        {installed && <Feedback success="平台 SM2 密钥已生成，安装已完成。" />}
+        {!installed && <Feedback error={error ?? '安装尚未完成，请重新授权。'} />}
+        <Flexbox horizontal gap={10} wrap="wrap">
+          {installed ? <Button type="primary" className="primary" href="/">进入统一支付清算</Button> : <>
+            {canRetry && <Button type="primary" className="primary" href="/oauth/login">使用刚才的配置重新授权</Button>}
+            <Button onClick={() => setStep(0)}>返回修改配置</Button>
+          </>}
+        </Flexbox>
+      </Panel> : <Panel title={step === 0 ? '运行环境与数据库' : 'HydCraft Portal'}>
         <form onSubmit={submit} className="stack">
           {step === 0 ? <>
             {field('token', '安装口令', { type: 'password', required: true })}
@@ -72,7 +79,7 @@ export default function Install({ installed, canRetry }) {
             </Button>
           </Flexbox>
         </form>
-      </Panel>
+      </Panel>}
     </div>
   </>;
 }

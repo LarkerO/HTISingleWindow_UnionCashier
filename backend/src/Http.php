@@ -9,6 +9,7 @@ use Workerman\Protocols\Http\Session;
 
 final class Http
 {
+    private const INSTALL_RESULT = '/install?step=verify';
     private const HEADERS = [
         'Cache-Control' => 'no-store',
         'X-Content-Type-Options' => 'nosniff',
@@ -48,6 +49,7 @@ final class Http
                     'mode' => $config['mode'] ?? null, 'plugin_online' => $online,
                     'public_key' => $config['keys']['public'] ?? null,
                     'oauth_error' => $session->get('oauth_error'),
+                    'oauth_setup_verified' => $session->get('oauth_setup_verified', false),
                     'oauth_setup_retry' => !$config && ($session->get('oauth_setup')['expires'] ?? 0) >= time(),
                 ]);
             }
@@ -213,7 +215,7 @@ final class Http
             'origin' => Config::url(Clearing::text($body, 'origin', 240), true),
             'client_id' => Clearing::text($body, 'client_id', 240),
             'client_secret' => Clearing::text($body, 'client_secret', 512),
-            'redis' => trim((string) ($body['redis'] ?? '')), 'openssl' => getenv('CASHIER_OPENSSL') ?: 'openssl',
+            'redis' => trim((string) ($body['redis'] ?? '')), 'openssl' => $this->opensslCommand(),
             'instance' => Config::token(), 'mode' => $body['mode'] ?? 'development',
         ];
         if (!in_array($config['mode'], ['development', 'production'], true)) {
@@ -272,7 +274,7 @@ final class Http
     {
         $state = Config::token();
         $verifier = bin2hex(random_bytes(32));
-        $session->delete('oauth_error');
+        $session->forget(['oauth_error', 'oauth_setup_verified']);
         $session->set('oauth', ['state' => $state, 'verifier' => $verifier, 'next' => $next,
             'expires' => time() + 600, 'config' => $setup ? $config : null]);
         return Portal::authorize($config, $state, $verifier);
@@ -284,13 +286,13 @@ final class Http
             $current = Config::read();
             $session = $this->session($request, $current);
             $oauth = $session->pull('oauth');
-            $next = $current ? '/' : '/install';
+            $next = $current ? '/' : self::INSTALL_RESULT;
             try {
                 $state = $request->get('state');
                 if (!$oauth || $oauth['expires'] < time() || !is_string($state) || !hash_equals($oauth['state'], $state)) {
                     throw new Fault('Portal 登录状态无效，请重新登录', 401);
                 }
-                $next = $current ? $oauth['next'] : '/install';
+                $next = $oauth['config'] ? self::INSTALL_RESULT : $oauth['next'];
                 $config = $oauth['config'] ?? $current;
                 $code = $request->get('code');
                 if (!$config || !is_string($code) || $code === '' || strlen($code) > 4096) {
@@ -298,6 +300,7 @@ final class Http
                 }
                 $user = Portal::profile($config, $code, $oauth['verifier']);
                 if ($oauth['config']) {
+                    $session->set('oauth_setup_verified', true);
                     $this->finishInstall($config, $user);
                 } else {
                     $db = new Store($config);
@@ -314,8 +317,28 @@ final class Http
             $request->sessionRegenerateId(true);
             $request->session()->set('user', $user['id']);
             $request->session()->set('csrf', Config::token());
-            return $this->redirect($oauth['next']);
+            return $this->redirect($next);
         });
+    }
+
+    private function opensslCommand(): string
+    {
+        $configured = getenv('CASHIER_OPENSSL');
+        if ($configured) {
+            return $configured;
+        }
+        if (DIRECTORY_SEPARATOR === '\\') {
+            foreach (explode(PATH_SEPARATOR, getenv('PATH') ?: '') as $directory) {
+                if ($directory !== '' && is_file(rtrim($directory, '/\\') . '/openssl.exe')) {
+                    return 'openssl';
+                }
+            }
+            $programFiles = getenv('ProgramFiles');
+            if ($programFiles && is_file($programFiles . '/Git/usr/bin/openssl.exe')) {
+                return $programFiles . '/Git/usr/bin/openssl.exe';
+            }
+        }
+        return 'openssl';
     }
 
     private function finishInstall(array $config, array $user): void
@@ -330,7 +353,7 @@ final class Http
                 $config['keys'] = Crypto::generate($config['openssl']);
                 openssl_digest('known', 'sm3');
             } catch (\Throwable) {
-                throw new Fault('无法初始化国密算法，请检查 OpenSSL 3 命令路径和 PHP SM3 支持', 500);
+                throw new Fault('无法初始化国密算法，请检查 CASHIER_OPENSSL、OpenSSL 3 命令路径和 PHP SM3 支持', 500);
             }
             $db = new Store($config);
             $db->initialize();
