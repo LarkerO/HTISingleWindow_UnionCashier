@@ -17,7 +17,7 @@ final class Portal
 
     public static function profile(array $config, string $code, string $verifier): array
     {
-        $token = self::request($config['portal'] . '/api/oauth/token', [], [
+        $token = self::request('换取访问令牌', $config['portal'] . '/api/oauth/token', [], [
             'grant_type' => 'authorization_code', 'code' => $code, 'code_verifier' => $verifier,
             'redirect_uri' => $config['origin'] . '/oauth/callback', 'client_id' => $config['client_id'],
             'client_secret' => $config['client_secret'],
@@ -25,7 +25,7 @@ final class Portal
         if (!is_string($token) || !preg_match('/\A[\x21-\x7e]{1,4096}\z/', $token)) {
             throw new Fault('Portal 登录测试失败：未收到访问令牌', 502);
         }
-        $profile = self::request($config['portal'] . '/api/oauth/userinfo', ['Authorization: Bearer ' . $token]);
+        $profile = self::request('读取用户资料', $config['portal'] . '/api/oauth/userinfo', ['Authorization: Bearer ' . $token]);
         $sub = $profile['sub'] ?? null;
         if (!is_string($sub) || !preg_match('/\A[A-Za-z0-9_-]{1,100}\z/', $sub)) {
             throw new Fault('Portal 登录测试失败：身份标识无效', 502);
@@ -36,7 +36,7 @@ final class Portal
         ];
         $username = $profile['preferred_username'] ?? null;
         if (is_string($username) && $username !== '') {
-            $accounts = self::request($config['portal'] . '/api/public/users/' .
+            $accounts = self::request('读取 Minecraft 档案', $config['portal'] . '/api/public/users/' .
                 rawurlencode($username) . '/minecraft-accounts', [], null, true)['accounts'] ?? [];
             $eligible = array_values(array_filter($accounts, static fn ($account) =>
                 is_array($account) && ($account['identityKind'] ?? '') === 'AUTHENTICATED'
@@ -88,7 +88,7 @@ final class Portal
         $db->put('user', $user['id'], $user + ['admin' => $admin || ($existing['admin'] ?? false)] + $existing);
     }
 
-    private static function request(string $url, array $headers, ?array $form = null, bool $allowMissing = false): array
+    private static function request(string $stage, string $url, array $headers, ?array $form = null, bool $allowMissing = false): array
     {
         $curl = curl_init($url);
         $options = [
@@ -96,6 +96,10 @@ final class Portal
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_HTTPHEADER => ['Accept: application/json', ...$headers],
         ];
+        // Windows PHP builds backed by OpenSSL may lack a default CA bundle.
+        if (DIRECTORY_SEPARATOR === '\\' && defined('CURLSSLOPT_NATIVE_CA') && !ini_get('curl.cainfo')) {
+            $options[CURLOPT_SSL_OPTIONS] = CURLSSLOPT_NATIVE_CA;
+        }
         if (defined('CURLOPT_PROTOCOLS_STR')) {
             $options[CURLOPT_PROTOCOLS_STR] = 'http,https';
         } else {
@@ -107,13 +111,27 @@ final class Portal
         curl_setopt_array($curl, $options);
         $body = curl_exec($curl);
         $status = curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-        unset($curl);
+        $errno = curl_errno($curl);
         if ($allowMissing && $status === 404) {
             return [];
         }
-        if (!is_string($body) || $status !== 200 || strlen($body) > 65536) {
-            throw new Fault('HydCraft Portal 请求失败（HTTP ' . $status . '）', 502);
+        if ($body === false || $status === 0) {
+            $detail = match ($errno) {
+                5, 6 => '域名解析失败',
+                7 => '连接失败',
+                28 => '连接或请求超时',
+                35, 60, 77 => 'TLS 连接或证书校验失败，请检查 PHP 的 CA 证书配置',
+                default => '未收到 HTTP 响应',
+            };
+            throw new Fault("HydCraft Portal {$stage}失败：{$detail}（cURL {$errno}）", 502);
         }
-        return Config::decode($body);
+        if ($status !== 200 || strlen($body) > 65536) {
+            throw new Fault("HydCraft Portal {$stage}失败（HTTP {$status}）", 502);
+        }
+        try {
+            return Config::decode($body);
+        } catch (\JsonException | Fault) {
+            throw new Fault("HydCraft Portal {$stage}失败：响应格式无效", 502);
+        }
     }
 }

@@ -4,7 +4,7 @@ import { api, Feedback, Field, options, PageTitle, Panel, useAction } from './sh
 
 const drivers = { sqlite: 'SQLite', mysql: 'MySQL', pgsql: 'PostgreSQL' };
 
-export default function Install({ installed }) {
+export default function Install({ installed, canRetry }) {
   const [form, setForm] = useState({ driver: 'sqlite', mode: 'development', origin: location.origin, db_host: '127.0.0.1' });
   const [step, setStep] = useState(0);
   const action = useAction();
@@ -31,6 +31,7 @@ export default function Install({ installed }) {
 
   return <>
     <PageTitle title="安装向导" description="配置清算数据库并用 HydCraft Portal 验证首位超级管理员。" />
+    {canRetry && <Flexbox horizontal><Button href="/oauth/login">使用刚才的配置重新授权</Button></Flexbox>}
     <div className="install-grid">
       <Panel className="installation-steps" title="安装进度">
         <Steps orientation="vertical" current={step} items={[

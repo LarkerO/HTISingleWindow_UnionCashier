@@ -47,6 +47,8 @@ final class Http
                     'installed' => (bool) $config, 'csrf' => $csrf, 'user' => $this->publicUser($user),
                     'mode' => $config['mode'] ?? null, 'plugin_online' => $online,
                     'public_key' => $config['keys']['public'] ?? null,
+                    'oauth_error' => $session->get('oauth_error'),
+                    'oauth_setup_retry' => !$config && ($session->get('oauth_setup')['expires'] ?? 0) >= time(),
                 ]);
             }
             if ($method === 'POST') {
@@ -241,6 +243,7 @@ final class Http
             throw new Fault('无法连接配置的数据库或 Redis，请核对参数');
         }
         $config['setup_hash'] = $stored;
+        $session->set('oauth_setup', ['config' => $config, 'expires' => time() + 600]);
         $url = $this->beginOAuth($session, $config, '/', true);
         return $this->json(['authorize_url' => $url]);
     }
@@ -248,12 +251,20 @@ final class Http
     public function login(Request $request): Response
     {
         return $this->attempt(function () use ($request) {
-            $config = Config::read() ?? throw new Fault('请先安装', 503);
+            $config = Config::read();
+            $session = $this->session($request, $config);
+            if (!$config) {
+                $setup = $session->get('oauth_setup');
+                if (($setup['expires'] ?? 0) < time()) {
+                    return $this->redirect('/install');
+                }
+                return $this->redirect($this->beginOAuth($session, $setup['config'], '/', true));
+            }
             $next = $request->get('next', '/');
             if (!is_string($next) || !preg_match('~\A/(?:checkout/[a-f0-9]{32})?\z~', $next)) {
                 $next = '/';
             }
-            return $this->redirect($this->beginOAuth($this->session($request, $config), $config, $next, false));
+            return $this->redirect($this->beginOAuth($session, $config, $next, false));
         });
     }
 
@@ -261,6 +272,7 @@ final class Http
     {
         $state = Config::token();
         $verifier = bin2hex(random_bytes(32));
+        $session->delete('oauth_error');
         $session->set('oauth', ['state' => $state, 'verifier' => $verifier, 'next' => $next,
             'expires' => time() + 600, 'config' => $setup ? $config : null]);
         return Portal::authorize($config, $state, $verifier);
@@ -272,23 +284,30 @@ final class Http
             $current = Config::read();
             $session = $this->session($request, $current);
             $oauth = $session->pull('oauth');
-            $state = $request->get('state');
-            if (!$oauth || $oauth['expires'] < time() || !is_string($state) || !hash_equals($oauth['state'], $state)) {
-                throw new Fault('Portal 登录状态无效，请重新登录', 401);
-            }
-            $config = $oauth['config'] ?? $current;
-            $code = $request->get('code');
-            if (!$config || !is_string($code) || $code === '' || strlen($code) > 4096) {
-                throw new Fault('Portal 登录授权未完成', 401);
-            }
-            $user = Portal::profile($config, $code, $oauth['verifier']);
-            if ($oauth['config']) {
-                $this->finishInstall($config, $user);
-            } else {
-                $db = new Store($config);
-                $db->write(function () use ($db, $user) {
-                    Portal::saveProfile($db, $user);
-                });
+            $next = $current ? '/' : '/install';
+            try {
+                $state = $request->get('state');
+                if (!$oauth || $oauth['expires'] < time() || !is_string($state) || !hash_equals($oauth['state'], $state)) {
+                    throw new Fault('Portal 登录状态无效，请重新登录', 401);
+                }
+                $next = $current ? $oauth['next'] : '/install';
+                $config = $oauth['config'] ?? $current;
+                $code = $request->get('code');
+                if (!$config || !is_string($code) || $code === '' || strlen($code) > 4096) {
+                    throw new Fault('Portal 登录授权未完成', 401);
+                }
+                $user = Portal::profile($config, $code, $oauth['verifier']);
+                if ($oauth['config']) {
+                    $this->finishInstall($config, $user);
+                } else {
+                    $db = new Store($config);
+                    $db->write(function () use ($db, $user) {
+                        Portal::saveProfile($db, $user);
+                    });
+                }
+            } catch (Fault $error) {
+                $session->set('oauth_error', $error->getMessage());
+                return $this->redirect($next);
             }
             $session->flush();
             Session::$secure = str_starts_with($config['origin'], 'https://');

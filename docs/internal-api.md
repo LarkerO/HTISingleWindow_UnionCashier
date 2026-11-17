@@ -10,7 +10,7 @@
 | `GET /install` | 安装向导 |
 | `GET /checkout/{id}` | 玩家确认付款、预授权或签约 |
 | `GET /oauth/login?next=/checkout/{id}` | 跳往 Portal，`next` 可省略 |
-| `GET /oauth/callback` | 校验 state，并用 PKCE verifier 向 Portal 换取身份 |
+| `GET /oauth/callback` | 校验 state，并用 PKCE verifier 向 Portal 换取身份。失败时返回安装页或登录前页面 |
 
 Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/userinfo`、`/api/public/users/{preferred_username}/minecraft-accounts`。最后一个接口是公开档案，受 Portal 隐私设置控制。
 
@@ -20,7 +20,7 @@ Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/use
 
 | 方法和路径 | 输入 | 输出 |
 | --- | --- | --- |
-| `GET /api/status` | 无 | `installed`、`csrf`、`user`、`mode`、`plugin_online`、`public_key` |
+| `GET /api/status` | 无 | `installed`、`csrf`、`user`、`mode`、`plugin_online`、`public_key`、`oauth_error`、`oauth_setup_retry` |
 | `GET /api/account` | 无 | 本人 `orders`、上次查询的 `balance` |
 | `GET /api/checkout/{id}` | 清算订单 ID | 订单与可用预付卡 |
 | `GET /api/cards` | 无 | `catalog`、`cards`、`operations`、`events` |
