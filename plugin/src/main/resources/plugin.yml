@@ -3,8 +3,3 @@ version: 0.1.0
 main: cn.bg7qvu.htisw.ecashier.CashierPlugin
 api-version: '1.18'
 softdepend: [Vault, Essentials, XConomy]
-commands:
-  unioncashier:
-    description: Bind the current Minecraft player to a Portal account.
-    usage: /unioncashier link <code>
-    aliases: [ucashier]

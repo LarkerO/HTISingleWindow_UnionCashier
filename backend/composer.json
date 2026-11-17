@@ -6,6 +6,7 @@
     "ext-mbstring": "*",
     "ext-pdo": "*",
     "ext-openssl": "*",
+    "ext-zip": "*",
     "workerman/webman-framework": "^2.1",
     "monolog/monolog": "^3.0",
     "predis/predis": "^3.0"

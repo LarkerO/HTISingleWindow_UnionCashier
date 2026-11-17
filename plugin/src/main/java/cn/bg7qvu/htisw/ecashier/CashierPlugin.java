@@ -1,9 +1,6 @@
 package cn.bg7qvu.htisw.ecashier;
 
 import com.google.gson.JsonObject;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
@@ -56,21 +53,6 @@ public final class CashierPlugin extends JavaPlugin {
         methods.clear();
     }
 
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player) || args.length != 2 || !"link".equals(args[0])
-            || !args[1].matches("[0-9a-f]{18}")) {
-            return false;
-        }
-        JsonObject request = new JsonObject();
-        request.addProperty("type", "link");
-        request.addProperty("code", args[1]);
-        request.addProperty("uuid", player.getUniqueId().toString());
-        request.addProperty("name", player.getName());
-        player.sendMessage(bridge != null && bridge.link(request) ? "绑定请求已提交。" : "清算后台未连接，请稍后重试。");
-        return true;
-    }
-
     private void received(BridgeClient.Connection connection, JsonObject data) {
         if (!isEnabled()) {
             return;
@@ -79,12 +61,6 @@ public final class CashierPlugin extends JavaPlugin {
             try {
                 switch (data.get("type").getAsString()) {
                     case "job" -> run(connection, data);
-                    case "link_result" -> {
-                        Player player = getServer().getPlayer(UUID.fromString(data.get("uuid").getAsString()));
-                        if (player != null) {
-                            player.sendMessage(data.get("ok").getAsBoolean() ? "Minecraft 玩家绑定成功。" : "绑定码无效、已使用或玩家已绑定。");
-                        }
-                    }
                     default -> getLogger().warning("Unknown signed message type");
                 }
             } catch (RuntimeException error) {

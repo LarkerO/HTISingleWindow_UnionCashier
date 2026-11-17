@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { A, Button, ConfigProvider, Flexbox, Image, Tabs, Tag, Text } from '@lobehub/ui';
 import { motion } from 'motion/react';
@@ -9,12 +9,16 @@ import { api, Feedback, Loading, useAction, useLoad } from './shared';
 import Install from './Install';
 import { Account, Checkout } from './Player';
 import { Admin, Merchants } from './Merchant';
-import Docs from './Docs';
+
+import { PlayerCards } from './Cards';
+import { PageTitle, Panel, SignIn } from './shared';
+
+const Docs = lazy(() => import('./Docs'));
 
 function App() {
   const status = useLoad('status', 5000);
   const action = useAction();
-  const initialTab = ['merchant', 'docs', 'admin'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'account';
+  const initialTab = ['merchant', 'docs', 'admin', 'cards'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'account';
   const [tab, setTab] = useState(initialTab);
   const data = status.data;
   const user = data?.user;
@@ -51,8 +55,9 @@ function App() {
           : <Tabs className="app-tabs" variant="square" activeKey={tab === 'admin' && !user?.admin ? 'account' : tab}
             onChange={setSection} items={[
               { key: 'account', label: '玩家面板', children: <Account user={user} online={data.plugin_online} /> },
+              { key: 'cards', label: '预付卡', children: <><PageTitle title="预付卡" />{user ? <PlayerCards user={user} /> : <Panel title="登录管理预付卡"><SignIn /></Panel>}</> },
               { key: 'merchant', label: '商户管理', children: <Merchants user={user} /> },
-              { key: 'docs', label: '接口文档', children: <Docs publicKey={data.public_key} /> },
+              { key: 'docs', label: '接口文档', children: <Suspense fallback={<Loading />}><Docs publicKey={data.public_key} /></Suspense> },
               ...(user?.admin ? [{ key: 'admin', label: '系统管理', children: <Admin user={user} online={data.plugin_online} /> }] : []),
             ]} />)}
     </main>

@@ -9,8 +9,15 @@ final class Clearing
     public const PRODUCTS = ['pay', 'hold', 'agreement', 'refund', 'split', 'payout'];
     public const MONEY_LIMIT = 2_000_000_000;
 
+    public readonly Cards $cards;
+    public readonly Limits $limits;
+    public readonly Statements $statements;
+
     public function __construct(public readonly Store $db, private readonly array $config)
     {
+        $this->cards = new Cards($this, $config);
+        $this->limits = new Limits($db);
+        $this->statements = new Statements($db);
     }
 
     public static function text(array $input, string $key, int $max = 100): string
@@ -33,48 +40,6 @@ final class Clearing
     public function user(string $id): array
     {
         return $this->db->get('user', $id) ?? throw new Fault('Portal 账号尚未登录本系统', 404);
-    }
-
-    public function linkCode(string $id): string
-    {
-        return $this->db->write(function () use ($id) {
-            $user = $this->user($id);
-            if (isset($user['uuid'])) {
-                throw new Fault('账号已绑定 Minecraft 玩家', 409);
-            }
-            if (isset($user['link_code'])) {
-                $this->db->delete('link', $user['link_code']);
-            }
-            $code = bin2hex(random_bytes(9));
-            $this->db->put('link', $code, ['user' => $id, 'expires' => time() + 600]);
-            $user['link_code'] = $code;
-            $this->db->put('user', $id, $user);
-            return $code;
-        });
-    }
-
-    public function bind(string $code, string $uuid, string $name): void
-    {
-        if (!preg_match('/\A[a-z0-9]{18}\z/', $code)
-            || !preg_match('/\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/', $uuid)) {
-            throw new Fault('无效绑定信息');
-        }
-        $this->db->write(function () use ($code, $uuid, $name) {
-            $link = $this->db->get('link', $code);
-            if (!$link || $link['expires'] < time() || $this->db->get('uuid', $uuid)) {
-                throw new Fault('绑定码已失效或玩家已绑定');
-            }
-            $user = $this->user($link['user']);
-            if (isset($user['uuid']) || ($user['link_code'] ?? '') !== $code) {
-                throw new Fault('绑定码已失效');
-            }
-            unset($user['link_code']);
-            $user['uuid'] = $uuid;
-            $user['minecraft_name'] = mb_substr($name, 0, 50);
-            $this->db->put('uuid', $uuid, ['user' => $user['id']]);
-            $this->db->put('user', $user['id'], $user);
-            $this->db->delete('link', $code);
-        });
     }
 
     public function merchant(string $id): array
@@ -121,6 +86,18 @@ final class Clearing
                         }
                         $merchant['state'] = $state;
                         $merchant['products'] = array_values(array_unique($products));
+                        break;
+                    case 'settlement':
+                        if (!$user['admin']) {
+                            throw new Fault('需要超级管理员权限', 403);
+                        }
+                        $cycle = self::text($data, 'cycle');
+                        if (!in_array($cycle, ['D+0', 'T+0', 'T+1', 'T+2'], true)) {
+                            throw new Fault('清算规则无效');
+                        }
+                        $merchant['cycle'] = $cycle;
+                        $merchant['limits'] = ['single' => Limits::value($data, 'single'),
+                            'monthly' => Limits::value($data, 'monthly'), 'count' => Limits::value($data, 'count')];
                         break;
                     case 'settings':
                         $origins = $data['origins'] ?? [];
@@ -181,6 +158,10 @@ final class Clearing
                     ? $this->requestResult($this->db->get('request', $this->requestKey($merchant['id'], $env, self::text($data, 'request_id'))))
                     : $this->ownedOrder($merchant, $env, self::text($data, 'order_id'));
             }
+            if ($action === 'statement') {
+                $this->requireMerchant($merchant, $env);
+                return $this->statements->read(null, $merchant['id'], $data + ['environment' => $env]);
+            }
             $requestId = self::text($data, 'request_id');
             $key = $this->requestKey($merchant['id'], $env, $requestId);
             unset($data['challenge'], $data['timestamp'], $data['merchant'], $data['key_id'], $data['environment']);
@@ -199,9 +180,10 @@ final class Clearing
                 'capture' => 'hold',
                 'debit' => 'agreement',
                 'refund', 'split', 'payout' => $action,
+                'card_bind' => null,
                 default => throw new Fault('未知接口', 404),
             };
-            if (!in_array($product, self::PRODUCTS, true)) {
+            if ($product !== null && !in_array($product, self::PRODUCTS, true)) {
                 throw new Fault('未知产品');
             }
             $this->requireMerchant($merchant, $env, $product, $console);
@@ -210,6 +192,8 @@ final class Clearing
             if ($action === 'create') {
                 $order = $this->create($merchant, $env, $data);
                 $request['result_order'] = $order['id'];
+            } elseif ($action === 'card_bind') {
+                $request['card'] = $this->cards->redeem(self::text($data, 'user'), $data, $merchant['id'], $env);
             } elseif (in_array($action, ['capture', 'debit', 'refund'], true)) {
                 $this->orderOperation($merchant, $env, $data, $request);
             } else {
@@ -275,12 +259,16 @@ final class Clearing
             throw new Fault('商户订单号已存在', 409);
         }
         $target = empty($data['user']) ? null : $this->user(self::text($data, 'user'))['id'];
+        $amount = $kind === 'agreement' ? 0 : self::amount($data['amount'] ?? null);
+        if ($kind !== 'agreement') {
+            $this->limits->merchant($merchant, $env, $amount);
+        }
         $id = Config::token();
         $order = [
             'id' => $id, 'merchant' => $merchant['id'], 'merchant_name' => $merchant['name'],
             'env' => $env, 'kind' => $kind, 'status' => 'pending', 'title' => self::text($data, 'title', 240),
             'out_trade_no' => $number, 'return_url' => $return, 'target' => $target,
-            'amount' => $kind === 'agreement' ? 0 : self::amount($data['amount'] ?? null),
+            'amount' => $amount,
             'refunded' => 0, 'created' => time(), 'expires' => time() + 1800,
             'checkout_url' => $this->config['origin'] . '/checkout/' . $id,
         ];
@@ -300,6 +288,13 @@ final class Clearing
         return $order;
     }
 
+    public function paymentCards(array $user, array $order): array
+    {
+        $order['payer'] = $user['id'];
+        return array_values(array_filter($this->db->list('card', $user['id']), fn ($card) =>
+            $this->cards->eligible($order, $card['number'], $order['amount']) !== null));
+    }
+
     public function playerAction(array $user, string $id, string $action, array $methods = []): array
     {
         return $this->db->write(function () use ($user, $id, $action, $methods) {
@@ -316,22 +311,32 @@ final class Clearing
                 }
                 $this->requireMerchant($this->merchant($order['merchant']), $order['env'], $order['env'] === 'live' ? $order['kind'] : null);
                 foreach ($methods as $method) {
-                    if (!in_array($method, self::RAILS, true)) {
+                    if (!is_string($method) || (!in_array($method, self::RAILS, true) && !preg_match('/\Acard:[a-f0-9]{32}\z/', $method))) {
                         throw new Fault('支付方式无效');
                     }
                 }
                 $methods = array_values(array_unique($methods));
-                if (!$methods || ($order['kind'] === 'pay' && count($methods) !== 1)) {
+                if (!$methods || count($methods) > 8) {
                     throw new Fault('请选择有效的支付方式');
                 }
                 $order['payer'] = $user['id'];
-                $order['uuid'] = $this->wallet($user, $order['env']);
+                $order['uuid'] = $this->wallet($user, $order['env'], false);
                 $order['methods'] = $methods;
                 if ($order['kind'] === 'agreement') {
+                    foreach ($methods as $method) {
+                        if (str_starts_with($method, 'card:') && !$this->cards->eligible($order, substr($method, 5), 0)) {
+                            throw new Fault('预付卡不支持该签约场景');
+                        }
+                    }
                     $order['status'] = 'active';
                 } else {
+                    $this->limits->merchant($this->merchant($order['merchant']), $order['env'], $order['amount'], $order);
+                    $order['limit_time'] = time();
                     $order['status'] = 'processing';
-                    $this->queue('order', $id, $order['env'], 'debit', $methods, $order['uuid'], $order['amount']);
+                    $this->advancePayment($order, $methods);
+                    if ($order['status'] === 'failed') {
+                        throw new Fault('所选方式不可用、余额不足或已超限，请重新选择', 409);
+                    }
                 }
             }
             $this->saveOrder($order);
@@ -339,9 +344,15 @@ final class Clearing
         });
     }
 
-    private function wallet(array $user, string $env): string
+    public function wallet(array $user, string $env, bool $required = true): ?string
     {
-        return $env === 'sandbox' ? $user['id'] : ($user['uuid'] ?? throw new Fault('请先绑定 Minecraft 玩家'));
+        if ($env === 'sandbox') {
+            return $user['id'];
+        }
+        if (($user['minecraft_source'] ?? '') === 'portal' && isset($user['uuid'])) {
+            return $user['uuid'];
+        }
+        return $required ? throw new Fault('请先在 Portal 绑定并公开 Minecraft 玩家档案，再重新登录') : null;
     }
 
     private function saveOrder(array $order): void
@@ -362,57 +373,219 @@ final class Clearing
             if ($order['kind'] !== 'agreement' || $order['status'] !== 'active') {
                 throw new Fault('签约未生效或已解约', 409);
             }
+            $this->limits->merchant($merchant, $env, $amount);
             $id = Config::token();
             $payment = [
                 'id' => $id, 'merchant' => $order['merchant'], 'merchant_name' => $order['merchant_name'],
                 'env' => $env, 'kind' => 'pay', 'status' => 'processing', 'title' => $order['title'],
-                'payer' => $order['payer'], 'uuid' => $order['uuid'], 'methods' => $order['methods'],
+                'payer' => $order['payer'], 'uuid' => $this->wallet($this->user($order['payer']), $env, false), 'methods' => $order['methods'],
                 'amount' => $amount, 'refunded' => 0, 'created' => time(),
                 'out_trade_no' => $request['request_id'], 'agreement_id' => $order['id'],
             ];
             $request['result_order'] = $id;
             $request['status'] = 'processing';
             $payment['request'] = $request['id'];
+            $this->advancePayment($payment, $payment['methods']);
             $this->saveOrder($payment);
-            $this->queue('order', $id, $env, 'debit', $order['methods'], $order['uuid'], $amount);
+            if ($payment['status'] !== 'processing') {
+                $request['status'] = $payment['status'] === 'paid' ? 'completed' : 'failed';
+                if (isset($payment['failure'])) {
+                    $request['failure'] = $payment['failure'];
+                }
+            }
             return;
         }
         if (isset($order['pending_request'])) {
             throw new Fault('订单已有未完成的资金操作', 409);
         }
-        $rail = $order['rail'] ?? '';
         if ($action === 'capture') {
             if ($order['status'] !== 'held' || $amount > $order['amount']) {
                 throw new Fault('订单未冻结或超出冻结金额', 409);
             }
-            $return = $order['amount'] - $amount;
-            if ($return === 0) {
-                $this->capture($order, $amount);
-                $request['result_order'] = $order['id'];
-                return;
-            }
+            $before = $order['amount'];
+            $after = $amount;
         } else {
-            if ($order['status'] !== 'paid' || $amount > $order['captured'] - $order['refunded']) {
+            $before = ($order['captured'] ?? 0) - $order['refunded'];
+            if ($order['status'] !== 'paid' || $amount > $before) {
                 throw new Fault('订单不可退款或超出可退金额', 409);
             }
-            $this->ledger($merchant['id'], $env, $rail, -$amount);
-            $return = $amount;
+            $after = $before - $amount;
+        }
+        $request['result_order'] = $order['id'];
+        $request['adjustments'] = $this->adjustments($order, $before, $after);
+        $game = null;
+        foreach ($request['adjustments'] as $part) {
+            if ($action === 'refund') {
+                $this->ledger($order['merchant'], $env, $part['rail'], -$part['amount']);
+            }
+            if (!isset($part['card'])) {
+                $game = $part;
+            }
+        }
+        if (!$game) {
+            $this->finishOrderOperation($order, $request, true);
+            return;
         }
         $order['pending_request'] = $request['id'];
         $this->saveOrder($order);
-        $request['result_order'] = $order['id'];
         $request['status'] = 'processing';
-        $request['rail'] = $rail;
-        $this->queue('request', $request['id'], $env, 'credit', [$rail], $order['uuid'], $return);
+        $request['rail'] = $game['rail'];
+        $this->queue('request', $request['id'], $env, 'credit', [$game['rail']], $order['uuid'], $game['amount']);
     }
 
-    private function capture(array &$order, int $amount): void
+    private function advancePayment(array &$order, array $methods): void
     {
-        if ($amount > 0) {
-            $this->ledger($order['merchant'], $order['env'], $order['rail'], $amount);
+        $order['usage_v2'] = true;
+        $payer = $order['payer'];
+        $env = $order['env'];
+        $month = Limits::month();
+        $reserved = $order['funding'] ?? [];
+        $remaining = $order['amount'] - array_sum(array_column($reserved, 'amount'));
+        while ($methods) {
+            $method = array_shift($methods);
+            if (str_starts_with($method, 'card:')) {
+                if ($reserved) {
+                    continue;
+                }
+                $card = $this->cards->eligible($order, substr($method, 5), $remaining);
+                if (!$card) {
+                    continue;
+                }
+                $amount = min($remaining, $card['balance']);
+                if (($amount < $remaining && (!$card['terms']['combine'] || !array_intersect($methods, self::RAILS)))
+                    || !$this->limits->canUse($payer, $env, 'card', $amount)) {
+                    continue;
+                }
+                $this->limits->use($payer, $env, 'card', $month, 1);
+                $this->cards->reserve($card, $amount, $order['id']);
+                $order['funding'] = [['card' => $card['number'], 'rail' => $card['rail'], 'amount' => $amount, 'month' => $month]];
+                if ($amount === $remaining) {
+                    $this->paymentSucceeded($order);
+                    return;
+                }
+                $reserved = $order['funding'];
+                $remaining -= $amount;
+                continue;
+            }
+            if (!$order['uuid'] || !$this->limits->canUse($payer, $env, $method, $remaining)) {
+                continue;
+            }
+            $this->limits->use($payer, $env, $method, $month, 1);
+            $order['attempt'] = ['rail' => $method, 'amount' => $remaining, 'month' => $month];
+            $this->queue('order', $order['id'], $env, 'debit', [$method, ...$methods], $order['uuid'], $remaining);
+            return;
         }
+        $this->paymentFailed($order, $order['failure'] ?? 'unavailable');
+    }
+
+    private function paymentFailed(array &$order, string $status): void
+    {
+        foreach ($order['funding'] ?? [] as $part) {
+            if (isset($part['card'])) {
+                $this->cards->settle($part['card'], $part['amount'], $order['id'], 'payment_released', true);
+                $this->limits->use($order['payer'], $order['env'], 'card', $part['month'], -1);
+            }
+        }
+        unset($order['funding']);
+        $order['status'] = 'failed';
+        $order['failure'] = $status;
+    }
+
+    private function paymentSucceeded(array &$order): void
+    {
+        unset($order['failure']);
+        $order['rail'] = $order['funding'][0]['rail'];
+        if ($order['kind'] === 'hold') {
+            $order['status'] = 'held';
+        } else {
+            $this->capture($order, $order['amount'], []);
+        }
+    }
+
+    private function allocations(array $order): array
+    {
+        return $order['funding'] ?? [['rail' => $order['rail'], 'amount' => $order['captured'] ?? $order['amount']]];
+    }
+
+    private function adjustments(array $order, int $before, int $after): array
+    {
+        $result = [];
+        foreach ($this->allocations($order) as $part) {
+            $keptBefore = min($part['amount'], $before);
+            $keptAfter = min($part['amount'], $after);
+            $before -= $keptBefore;
+            $after -= $keptAfter;
+            if ($keptBefore > $keptAfter) {
+                $result[] = ['amount' => $keptBefore - $keptAfter] + $part;
+            }
+        }
+        return $result;
+    }
+
+    private function capture(array &$order, int $amount, array $adjustments): void
+    {
+        $remaining = $amount;
+        $funding = [];
+        $released = array_column(array_filter($adjustments, static fn ($part) => isset($part['card'])), 'amount', 'card');
+        $now = time();
+        $cycle = $this->merchant($order['merchant'])['cycle'] ?? 'D+0';
+        $due = $order['env'] === 'live' ? Limits::due($cycle, $now) : $now;
+        foreach ($this->allocations($order) as $part) {
+            $used = min($part['amount'], $remaining);
+            $remaining -= $used;
+            if (isset($part['card'])) {
+                $this->cards->settle($part['card'], $released[$part['card']] ?? 0, $order['id'],
+                    $used ? 'payment' : 'payment_released', true, $used);
+            }
+            if ($used) {
+                $funding[] = ['amount' => $used] + $part;
+                $this->ledger($order['merchant'], $order['env'], $part['rail'], $used, $due);
+            }
+        }
+        $order['funding'] = $funding;
         $order['captured'] = $amount;
         $order['status'] = $amount > 0 ? 'paid' : 'released';
+        $order['settlement_at'] = $due;
+        $order['rail'] = implode('+', array_unique(array_map(static fn ($part) => isset($part['card']) ? 'card' : $part['rail'], $funding))) ?: $order['rail'];
+        $this->statements->append($order, 'payment', $amount, $order['id']);
+        $this->saveOrder($order);
+    }
+
+    private function finishOrderOperation(array $order, array $request, bool $ok): void
+    {
+        unset($order['pending_request']);
+        if ($ok && $request['action'] === 'capture') {
+            $this->capture($order, $request['amount'], $request['adjustments'] ?? []);
+            return;
+        }
+        if ($request['action'] === 'refund') {
+            foreach ($request['adjustments'] ?? [['rail' => $request['rail'], 'amount' => $request['amount']]] as $part) {
+                if ($ok && isset($part['card'])) {
+                    $this->cards->settle($part['card'], $part['amount'], $order['id'], 'refund', false);
+                } elseif (!$ok) {
+                    $this->ledger($order['merchant'], $order['env'], $part['rail'], $part['amount']);
+                }
+            }
+            if ($ok) {
+                foreach ($request['adjustments'] ?? [] as $part) {
+                    $due = $order['settlement_at'] ?? 0;
+                    if ($due > time()) {
+                        $bucket = "{$order['merchant']}:{$order['env']}:{$part['rail']}";
+                        $key = "$bucket:$due";
+                        $lot = $this->db->get('settlement_lot', $key);
+                        if ($lot) {
+                            $lot['amount'] = max(0, $lot['amount'] - $part['amount']);
+                            $this->db->put('settlement_lot', $key, $lot, $bucket);
+                        }
+                    }
+                }
+                if (!array_key_exists('legacy_refunded', $order) && !$this->db->get('statement', $order['id'])) {
+                    $order['legacy_refunded'] = $order['refunded'];
+                }
+                $order['refunded'] += $request['amount'];
+                $this->statements->append($order, 'refund', -$request['amount']);
+            }
+        }
         $this->saveOrder($order);
     }
 
@@ -423,26 +596,41 @@ final class Clearing
             throw new Fault('无效支付方式');
         }
         $target = $request['action'] === 'payout'
-            ? $this->user($this->db->get('system', 'admin')['id'])
+            ? $this->user(empty($data['user']) ? $this->db->get('system', 'admin')['id'] : self::text($data, 'user'))
             : $this->user(self::text($data, 'user'));
         $wallet = $this->wallet($target, $env);
         $amount = self::amount($data['amount'] ?? null);
-        $this->ledger($merchant['id'], $env, $rail, -$amount);
+        $this->ledger($merchant['id'], $env, $rail, -$amount, 0, true);
         $request += ['amount' => $amount, 'rail' => $rail, 'user' => $target['id']];
         $request['status'] = 'processing';
         $this->queue('request', $request['id'], $env, 'credit', [$rail], $wallet, $amount);
     }
 
-    private function ledger(string $merchant, string $env, string $rail, int $delta): void
+    public function ledger(string $merchant, string $env, string $rail, int $delta, int $due = 0, bool $requireMatured = false): void
     {
         $id = "$merchant:$env:$rail";
         $row = $this->db->get('ledger', $id) ?? ['env' => $env, 'rail' => $rail, 'balance' => 0];
-        $balance = $row['balance'] + $delta;
-        if ($balance < 0) {
-            throw new Fault('商户在该支付方式下余额不足', 409);
+        if ($row['balance'] + $delta < 0 || ($requireMatured && $this->available($merchant, $row) + $delta < 0)) {
+            throw new Fault('该支付方式的可用余额不足或仍在清算期', 409);
         }
-        $row['balance'] = $balance;
+        $row['balance'] += $delta;
         $this->db->put('ledger', $id, $row, $merchant);
+        if ($delta > 0 && $due > time()) {
+            $lot = $id . ':' . $due;
+            $amount = ($this->db->get('settlement_lot', $lot)['amount'] ?? 0) + $delta;
+            $this->db->put('settlement_lot', $lot, ['amount' => $amount, 'due' => $due], $id);
+        }
+    }
+
+    public function available(string $merchant, array $row): int
+    {
+        $blocked = 0;
+        foreach ($this->db->list('settlement_lot', "$merchant:{$row['env']}:{$row['rail']}") as $lot) {
+            if ($lot['due'] > time()) {
+                $blocked += $lot['amount'];
+            }
+        }
+        return max(0, $row['balance'] - $blocked);
     }
 
     public function balance(array $user): array
@@ -450,10 +638,10 @@ final class Clearing
         return $this->db->write(function () use ($user) {
             $uuid = $this->wallet($user, 'live');
             $existing = $this->db->get('balance', $user['id']);
-            if ($existing && $existing['requested'] > time() - 10) {
+            if ($existing && ($existing['uuid'] ?? '') === $uuid && $existing['requested'] > time() - 10) {
                 return $existing;
             }
-            $row = ['requested' => time(), 'values' => []];
+            $row = ['requested' => time(), 'uuid' => $uuid, 'values' => []];
             $this->db->put('balance', $user['id'], $row);
             foreach (self::RAILS as $rail) {
                 $this->queue('balance', $user['id'], 'live', 'balance', [$rail], $uuid, 0);
@@ -462,7 +650,7 @@ final class Clearing
         });
     }
 
-    private function queue(string $type, string $parent, string $env, string $action, array $methods, string $uuid, int $amount): void
+    public function queue(string $type, string $parent, string $env, string $action, array $methods, string $uuid, int $amount): void
     {
         $id = Config::token();
         $job = ['id' => $id, 'type' => $type, 'parent' => $parent, 'env' => $env, 'action' => $action,
@@ -514,49 +702,49 @@ final class Clearing
             $this->db->put('review', $job['id'], $job);
             return;
         }
-        if (!$ok && in_array($status, ['insufficient', 'unavailable', 'range'], true) && $job['action'] === 'debit' && $job['rest']) {
-            $this->queue($job['type'], $job['parent'], $job['env'], $job['action'], $job['rest'], $job['uuid'], $job['amount']);
+        if ($job['type'] === 'card') {
+            $this->cards->finish($job['parent'], $ok);
             return;
         }
         if ($job['type'] === 'balance') {
             $row = $this->db->get('balance', $job['parent']);
+            if (!$row || (isset($row['uuid']) && $row['uuid'] !== $job['uuid'])) {
+                return;
+            }
             $row['values'][$job['rail']] = $ok ? $balance : null;
             $this->db->put('balance', $job['parent'], $row);
             return;
         }
         if ($job['type'] === 'order') {
             $order = $this->order($job['parent']);
+            $attempt = $order['attempt'] ?? null;
+            unset($order['attempt']);
             if ($ok) {
-                $order['rail'] = $job['rail'];
-                if ($order['kind'] === 'hold') {
-                    $order['status'] = 'held';
-                } else {
-                    $this->capture($order, $order['amount']);
-                }
+                $order['funding'][] = ['rail' => $job['rail'], 'amount' => $job['amount']];
+                $this->paymentSucceeded($order);
             } else {
-                $order['status'] = 'failed';
+                if ($attempt) {
+                    $this->limits->use($order['payer'], $order['env'], $job['rail'], $attempt['month'], -1);
+                }
                 $order['failure'] = $status;
+                if ($job['rest'] && in_array($status, ['insufficient', 'unavailable', 'range'], true)) {
+                    $this->advancePayment($order, $job['rest']);
+                } else {
+                    $this->paymentFailed($order, $status);
+                }
             }
             $this->saveOrder($order);
-            if (isset($order['request'])) {
+            if (isset($order['request']) && $order['status'] !== 'processing') {
                 $request = $this->db->get('request', $order['request']);
-                $this->finishRequest($request, $ok, $status);
+                $this->finishRequest($request, $order['status'] === 'paid', $order['failure'] ?? 'ok');
             }
             return;
         }
         $request = $this->db->get('request', $job['parent']);
         if (isset($request['order_id'])) {
-            $order = $this->order($request['order_id']);
-            unset($order['pending_request']);
-            if ($ok && $request['action'] === 'capture') {
-                $this->capture($order, $request['amount']);
-            }
-            if ($ok && $request['action'] === 'refund') {
-                $order['refunded'] += $request['amount'];
-            }
-            $this->saveOrder($order);
+            $this->finishOrderOperation($this->order($request['order_id']), $request, $ok);
         }
-        if (!$ok && in_array($request['action'], ['refund', 'split', 'payout'], true)) {
+        if (!$ok && in_array($request['action'], ['split', 'payout'], true)) {
             $this->ledger($request['merchant'], $request['env'], $request['rail'], $request['amount']);
         }
         $this->finishRequest($request, $ok, $status);

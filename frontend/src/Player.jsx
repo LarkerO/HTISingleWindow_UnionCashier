@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Divider, Flexbox, Tag, Text } from '@lobehub/ui';
 import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, Panel, products, rails, SignIn, State, useAction, useLoad } from './shared';
 
+import { PaymentLimits, Statement } from './Statements';
+
 export function Account({ user, online }) {
   const account = useLoad(user ? 'account' : null, 4000);
   const action = useAction();
-  const [link, setLink] = useState('');
   if (!user) {
     return <>
       <Panel className="home-hero">
@@ -31,11 +32,7 @@ export function Account({ user, online }) {
     <div className="service-grid account-grid">
       <Panel title="Minecraft 玩家">
         <Text as="p">{user.minecraft_name ?? '尚未绑定'}</Text>
-        {!user.uuid && <>
-          <Text as="p" className="muted">生成绑定码，再到游戏内执行指令。绑定码有效期为 10 分钟。</Text>
-          {link && <Text as="p" code className="code">/unioncashier link {link}</Text>}
-          <Button loading={action.busy} onClick={() => action.run(async () => setLink((await api('link', {})).code))}>生成绑定码</Button>
-        </>}
+        {!user.uuid && <Text as="p" className="muted">请在 Portal 绑定 Minecraft 玩家、公开玩家档案后重新登录。</Text>}
         <Text as="p" className="muted">清算账号 ID {user.id}</Text>
       </Panel>
       <Panel title="游戏内余额" action={<Button disabled={!user.uuid} loading={action.busy}
@@ -50,6 +47,8 @@ export function Account({ user, online }) {
       </Panel>
     </div>
     <Feedback error={action.error ?? account.error} />
+    <PaymentLimits />
+    <Statement />
     <Panel title="交易与协议" subtitle="查看本账号提交的订单、预授权和签约">
       {!accountData && !account.error && <Loading />}
       {accountData?.orders.length === 0 && <Empty>目前没有交易或签约记录。</Empty>}
@@ -100,7 +99,15 @@ export function Checkout({ id, user }) {
 
   const isAgreement = order.kind === 'agreement';
   const isHold = order.kind === 'hold';
-  const needsLink = order.env === 'live' && !user.uuid;
+  const methods = {
+    ...(order.env === 'live' && !user.uuid ? {} : rails),
+    ...Object.fromEntries((resource.data.cards ?? []).map(card =>
+      ['card:' + card.number, card.terms.name + ' · 余额 ' + money(card.balance) + ' · ' + card.number.slice(-6)])),
+  };
+  const selected = methods[method] ? method : Object.keys(methods)[0];
+  const backup = fallback !== selected && methods[fallback] ? fallback : 'none';
+  const primaryCard = selected?.startsWith('card:');
+  const needsLink = !selected;
   const expired = order.status === 'pending' && order.expires * 1000 < Date.now();
   return <div className="checkout-layout">
     <PageTitle title={products[order.kind]} action={order.env === 'sandbox' && <Tag color="warning">沙箱</Tag>} />
@@ -115,18 +122,18 @@ export function Checkout({ id, user }) {
     <Panel title={order.status === 'pending' ? '支付方式' : '处理进度'}>
       {order.status === 'pending' && !expired && <>
         <Field name="payment-method" label={order.kind === 'pay' ? '支付方式' : '优先支付方式'}
-          value={method} onChange={value => { setMethod(value); if (value === fallback) setFallback('none'); }}
-          choices={options(rails)} />
-        {order.kind !== 'pay' && <Field name="backup-method" label="备用支付方式"
-          value={fallback} onChange={setFallback} choices={options({ none: '不使用备用方式',
-            ...Object.fromEntries(Object.entries(rails).filter(([key]) => key !== method)) })} />}
+          value={selected ?? ''} onChange={value => { setMethod(value); if (value === fallback) setFallback('none'); }}
+          choices={options(methods)} />
+        {(order.kind !== 'pay' || primaryCard) && <Field name="backup-method" label="备用支付方式"
+          value={backup} onChange={setFallback} choices={options({ none: '不使用备用方式',
+            ...Object.fromEntries(Object.entries(methods).filter(([key]) => key !== selected)) })} />}
         <Text as="p" className="muted">{isAgreement ? '商户可按所选顺序发起免密扣款。签约后可在玩家面板解约。'
           : isHold ? '确认后会冻结对应金额。商户解除预授权时，未结算余额退回原支付方式。'
           : '确认后从所选游戏余额扣款。'}</Text>
-        {needsLink && <Alert type="warning" title="请先到玩家面板绑定 Minecraft 玩家" />}
+        {needsLink && <Alert type="warning" title="当前没有可用方式，请激活适用的预付卡或在 Portal 公开已验证的 Minecraft 档案" />}
         <Button size="large" type="primary" className="primary" disabled={needsLink} loading={action.busy}
           onClick={() => action.run(async () => {
-            await api('checkout', { action: 'confirm', id, methods: fallback === 'none' ? [method] : [method, fallback] });
+            await api('checkout', { action: 'confirm', id, methods: backup === 'none' ? [selected] : [selected, backup] });
             setConfirmed(true);
             resource.reload();
           })}>{isAgreement ? '确认签约' : isHold ? '确认冻结' : '确认支付'}</Button>

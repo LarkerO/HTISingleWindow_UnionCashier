@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { Alert, Button, Flexbox, Tag, Text } from '@lobehub/ui';
-import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, Panel, products, rails, SignIn, State, useAction, useLoad } from './shared';
+import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, Panel, products, rails, randomId, SignIn, State, useAction, useLoad } from './shared';
 import { OrderRow } from './Player';
+import { CardIssuer } from './Cards';
+import { MerchantSettlement, Statement } from './Statements';
 
 function BusinessForm({ label, value, setValue, name, ...rest }) {
   return <Field name={name} label={label} value={value[name]} onChange={next => setValue({ ...value, [name]: next })} {...rest} />;
 }
 
 const lines = content => content.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-const randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
 
 export function Merchants({ user }) {
   const list = useLoad(user ? 'merchants' : null);
@@ -62,17 +63,21 @@ function MerchantDetail({ user, data, refresh }) {
       <Flexbox horizontal gap={8} wrap="wrap">
         {merchant.products.length ? merchant.products.map(product => <Tag key={product}>{products[product]}</Tag>) : <Text className="muted">尚未开通能力产品</Text>}
       </Flexbox>
+      <Text className="muted">正式清算周期 {merchant.cycle ?? 'D+0'}</Text>
       <div className="balance-grid">
         {['live', 'sandbox'].flatMap(env => Object.entries(rails).map(([rail, label]) => <div key={env + rail}>
           <Text className="muted">{env === 'live' ? '正式' : '沙箱'} · {label}</Text>
           <Text className="amount">{money(balances.find(b => b.env === env && b.rail === rail)?.balance ?? 0)}</Text>
+          <Text className="muted">可提现 {money(balances.find(b => b.env === env && b.rail === rail)?.available ?? 0)}</Text>
         </div>))}
       </div>
     </Panel>
-    {user.admin && <MerchantReview merchant={merchant} refresh={refresh} />}
+    {user.admin && <><MerchantReview merchant={merchant} refresh={refresh} /><MerchantSettlement merchant={merchant} refresh={refresh} /></>}
     {editable && <div className="merchant-selection"><MerchantKeys merchant={merchant} refresh={refresh} />
       <MerchantMembers merchant={merchant} refresh={refresh} /></div>}
     <Console merchant={merchant} refresh={refresh} />
+    <Statement merchantId={merchant.id} />
+    {editable && merchant.state === 'approved' && <CardIssuer issuer={merchant.id} />}
     <Panel title="商户订单">
       {!orders.length && <Empty>暂无订单。</Empty>}
       {orders.map(order => <OrderRow order={order} key={order.id}
@@ -147,7 +152,7 @@ function MerchantMembers({ merchant, refresh }) {
   </Panel>;
 }
 
-const actions = { create: '创建订单', query: '查询', capture: '解除／结算预授权', debit: '免密扣款', refund: '退款', split: '分账给玩家', payout: '提现至超级管理员' };
+const actions = { create: '创建订单', query: '查询', capture: '解除／结算预授权', debit: '免密扣款', refund: '退款', split: '分账给玩家', payout: '提现至玩家' };
 const defaultForm = () => ({ environment: 'sandbox', action: 'create', kind: 'pay', rail: 'vault', request_id: randomId() });
 
 function Console({ merchant, refresh }) {
@@ -170,7 +175,7 @@ function Console({ merchant, refresh }) {
       if (hasAmount) input.amount = Number(form.amount);
       if (hasOrder || (query && !form.query_request)) input.order_id = form.order_id;
       if (hasRail) input.rail = form.rail;
-      if ((create || a === 'split') && form.target) input.user = form.target;
+      if ((create || a === 'split' || a === 'payout') && form.target) input.user = form.target;
       if (create) Object.assign(input, { kind: form.kind, out_trade_no: form.out_trade_no, title: form.title, return_url: form.return_url ?? '' });
       setResult(await api('merchant', { action: 'command', merchant: merchant.id, environment: form.environment, input }));
       refresh();
@@ -199,7 +204,7 @@ function Console({ merchant, refresh }) {
           {field('title', '订单标题', { required: true })}
           {field('return_url', '完成后返回地址', { type: 'url' })}
         </>}
-        {(create || a === 'split') && field('target', create ? '指定玩家清算账号 ID（可选）' : '收款玩家清算账号 ID', { required: a === 'split' })}
+        {(create || a === 'split' || a === 'payout') && field('target', create ? '指定玩家清算账号 ID（可选）' : a === 'payout' ? '收款玩家 ID（留空使用超级管理员）' : '收款玩家清算账号 ID', { required: a === 'split' })}
         {hasAmount && field('amount', a === 'capture' ? '实扣金额（0 为全额解除）' : '金额', { required: true,
           type: 'number', min: a === 'capture' ? 0 : 1, step: 1, max: 2000000000 })}
         {hasRail && field('rail', '清算支付方式', { choices: options(rails) })}
@@ -242,6 +247,7 @@ export function Admin({ user, online }) {
       </form>
     </Panel>
     <Feedback error={flow.error ?? info.error} success={flow.success} />
+    <CardIssuer issuer="" />
     <Panel title="资金操作复核">
       {!info.data && !info.error && <Loading />}
       {info.data?.reviews.length === 0 && <Empty>暂无需要复核的资金操作。</Empty>}

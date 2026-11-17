@@ -15,6 +15,7 @@ export async function api(path, body) {
   return data;
 }
 
+export const randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
 export const rails = { vault: 'Vault', scoreboard: '计分板' };
 export const products = { pay: '收银台支付', hold: '预授权', agreement: '免密签约', refund: '退款', split: '分账', payout: '提现' };
 export const states = {

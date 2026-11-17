@@ -23,7 +23,7 @@ final class Http
             return new Response(503, self::HEADERS, '请先构建前端：cd frontend; npm ci; npm run build');
         }
         return (new Response(200, self::HEADERS + ['Content-Type' => 'text/html; charset=utf-8',
-            'Content-Security-Policy' => "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"]))->withFile($file);
+            'Content-Security-Policy' => "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:"]))->withFile($file);
     }
 
     public function api(Request $request, string $path): Response
@@ -51,7 +51,7 @@ final class Http
             }
             if ($method === 'POST') {
                 $this->csrf($request, $session);
-                $body = $this->body($request);
+                $body = $this->body($request, $path === 'card-art' ? 625000 : 131072);
             } elseif ($method !== 'GET') {
                 throw new Fault('不支持该请求方法', 405);
             }
@@ -64,12 +64,44 @@ final class Http
             $db = new Store($config);
             $clearing = new Clearing($db, $config);
             $id = $session->get('user');
+            if ($method === 'GET' && preg_match('~^card-art/([0-9a-f]{32})$~D', $path, $match)) {
+                $image = $db->get('card_image', $match[1]) ?? throw new Fault('卡面不存在', 404);
+                return (new Response(200, [
+                    'Content-Type' => $image['mime'], 'X-Content-Type-Options' => 'nosniff',
+                    'Cache-Control' => 'public, max-age=86400',
+                ]))->withFile($clearing->cards->imagePath($match[1]));
+            }
             if (!$id) {
                 throw new Fault('请通过 HydCraft Portal 登录', 401);
             }
             $user = $clearing->user($id);
 
             if ($method === 'GET') {
+                if ($path === 'cards') {
+                    return $this->json($clearing->cards->account($id) + ['catalog' => $clearing->cards->catalog()]);
+                }
+                if ($path === 'card-types') {
+                    return $this->json($clearing->cards->issuance($user, (string) $request->get('issuer', '')));
+                }
+                if ($path === 'payment-limits') {
+                    return $this->json(['limits' => $db->list('payment_limit', $id)]);
+                }
+                if ($path === 'statement' || $path === 'statement.xlsx') {
+                    $filter = $request->get();
+                    $merchantId = (string) ($filter['merchant'] ?? '');
+                    $merchantView = ($filter['scope'] ?? '') === 'merchant';
+                    if ($merchantView) {
+                        $clearing->manage($user, $merchantId);
+                    }
+                    $rows = $clearing->statements->read($merchantView ? null : $id, $merchantId, $filter, $path === 'statement.xlsx');
+                    if ($path === 'statement') {
+                        return $this->json($rows);
+                    }
+                    return new Response(200, self::HEADERS + [
+                        'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        'Content-Disposition' => 'attachment; filename="statement.xlsx"',
+                    ], Statements::xlsx($rows));
+                }
                 if ($path === 'account') {
                     $orders = array_map(fn ($row) => $this->playerView($clearing->order($row['id'])), $db->list('player_order', $id));
                     usort($orders, static fn (array $a, array $b) => $b['created'] <=> $a['created']);
@@ -85,14 +117,16 @@ final class Http
                     return $this->json(['plugin_set' => !empty($config['plugin_public']), 'reviews' => $db->list('review')]);
                 }
                 if (preg_match('~^checkout/([0-9a-f]{32})$~D', $path, $match)) {
-                    return $this->json(['order' => $this->playerView($clearing->playerOrder($user, $match[1]))]);
+                    $order = $clearing->playerOrder($user, $match[1]);
+                    return $this->json(['order' => $this->playerView($order),
+                        'cards' => $order['status'] === 'pending' ? $clearing->paymentCards($user, $order) : []]);
                 }
                 if (preg_match('~^merchants/([0-9a-f]{32})$~D', $path, $match)) {
                     $merchant = $clearing->manage($user, $match[1]);
                     $orders = $db->list('order', $merchant['id']);
                     usort($orders, static fn (array $a, array $b) => $b['created'] <=> $a['created']);
                     return $this->json(['merchant' => $merchant, 'orders' => $orders,
-                        'balances' => $db->list('ledger', $merchant['id'])]);
+                        'balances' => array_map(fn ($row) => $row + ['available' => $clearing->available($merchant['id'], $row)], $db->list('ledger', $merchant['id']))]);
                 }
                 throw new Fault('接口不存在', 404);
             }
@@ -102,8 +136,30 @@ final class Http
                     $session->flush();
                     $request->sessionRegenerateId(true);
                     return $this->json(['ok' => true]);
-                case 'link':
-                    return $this->json(['code' => $clearing->linkCode($id)]);
+                case 'cards':
+                    $action = Clearing::text($body, 'action');
+                    return $this->json(match ($action) {
+                        'save' => $clearing->cards->type($user, $body),
+                        'buy' => $clearing->cards->buy($user, $body),
+                        'redeem' => $db->write(fn () => $clearing->cards->redeem($id, $body)),
+                        'bind' => $db->write(function () use ($clearing, $user, $body) {
+                            $issuer = (string) ($body['issuer'] ?? '');
+                            if ($issuer !== '') {
+                                $clearing->manage($user, $issuer, true);
+                            } else {
+                                $this->admin($user);
+                            }
+                            return $clearing->cards->redeem(Clearing::text($body, 'user'), $body, $issuer);
+                        }),
+                        'transfer' => $clearing->cards->transfer($user, $body),
+                        'return' => $clearing->cards->close($user, $body),
+                        'fund' => $clearing->cards->fund($user, $body),
+                        default => throw new Fault('未知卡片操作', 404),
+                    });
+                case 'card-art':
+                    return $this->json(['id' => $clearing->cards->addImage($id, $body)]);
+                case 'payment-limits':
+                    return $this->json($clearing->limits->save($id, $body));
                 case 'balance':
                     return $this->json($this->balanceView($clearing->balance($user)));
                 case 'checkout':
@@ -231,8 +287,7 @@ final class Http
             } else {
                 $db = new Store($config);
                 $db->write(function () use ($db, $user) {
-                    $existing = $db->get('user', $user['id']) ?? ['admin' => false];
-                    $db->put('user', $user['id'], $user + $existing);
+                    Portal::saveProfile($db, $user);
                 });
             }
             $session->flush();
@@ -271,7 +326,7 @@ final class Http
                 }
                 $db->put('system', 'installation', ['origin' => $config['origin']]);
                 $db->put('system', 'admin', ['id' => $user['id']]);
-                $db->put('user', $user['id'], $user + ['admin' => true] + ($db->get('user', $user['id']) ?? []));
+                Portal::saveProfile($db, $user, true);
             });
             Config::save($config);
             @unlink($path);
@@ -344,10 +399,10 @@ final class Http
         return $request->session();
     }
 
-    private function body(Request $request): array
+    private function body(Request $request, int $max = 131072): array
     {
-        if (strlen($request->rawBody()) > 131072 || !str_starts_with(strtolower((string) $request->header('content-type')), 'application/json')) {
-            throw new Fault('需要 application/json，最大 128 KiB', 415);
+        if (strlen($request->rawBody()) > $max || !str_starts_with(strtolower((string) $request->header('content-type')), 'application/json')) {
+            throw new Fault('需要 application/json 且内容大小必须在允许范围内', 415);
         }
         return Config::decode($request->rawBody());
     }
@@ -370,7 +425,10 @@ final class Http
     private function publicUser(?array $user): ?array
     {
         if ($user !== null) {
-            unset($user['link_code']);
+            if (($user['minecraft_source'] ?? '') !== 'portal') {
+                unset($user['uuid'], $user['minecraft_name']);
+            }
+            unset($user['link_code'], $user['minecraft_source']);
         }
         return $user;
     }
@@ -378,6 +436,7 @@ final class Http
     private function balanceView(?array $balance): ?array
     {
         if ($balance !== null) {
+            unset($balance['uuid']);
             $balance['values'] = (object) $balance['values'];
         }
         return $balance;
@@ -385,7 +444,7 @@ final class Http
 
     private function playerView(array $order): array
     {
-        unset($order['uuid'], $order['target'], $order['payer'], $order['pending_request'], $order['request']);
+        unset($order['uuid'], $order['target'], $order['payer'], $order['pending_request'], $order['request'], $order['attempt']);
         return $order;
     }
 

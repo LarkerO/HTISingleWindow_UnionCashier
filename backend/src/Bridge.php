@@ -74,16 +74,6 @@ final class Bridge
                 return;
             }
             $clearing = new Clearing(new Store($config), $config);
-            if (($data['type'] ?? '') === 'link') {
-                $ok = true;
-                try {
-                    $clearing->bind(Clearing::text($data, 'code'), Clearing::text($data, 'uuid'), Clearing::text($data, 'name'));
-                } catch (Fault) {
-                    $ok = false;
-                }
-                $this->send($peer, $config, ['type' => 'link_result', 'uuid' => $data['uuid'], 'ok' => $ok]);
-                return;
-            }
             $id = $data['id'] ?? null;
             $status = $data['status'] ?? null;
             if (($data['type'] ?? '') !== 'result' || !$this->inflight || $id !== $this->inflight['id']

@@ -30,13 +30,65 @@ final class Portal
         if (!is_string($sub) || !preg_match('/\A[A-Za-z0-9_-]{1,100}\z/', $sub)) {
             throw new Fault('Portal 登录测试失败：身份标识无效', 502);
         }
-        return [
+        $user = [
             'id' => $sub, 'hydroline_id' => mb_substr((string) ($profile['hydroline_id'] ?? ''), 0, 100),
             'name' => mb_substr((string) ($profile['name'] ?? $profile['preferred_username'] ?? $sub), 0, 120),
         ];
+        $username = $profile['preferred_username'] ?? null;
+        if (is_string($username) && $username !== '') {
+            $accounts = self::request($config['portal'] . '/api/public/users/' .
+                rawurlencode($username) . '/minecraft-accounts', [], null, true)['accounts'] ?? [];
+            $eligible = array_values(array_filter($accounts, static fn ($account) =>
+                is_array($account) && ($account['identityKind'] ?? '') === 'AUTHENTICATED'
+                && ($account['status'] ?? '') === 'VERIFIED'
+                && is_string($account['uuid'] ?? null)
+                && preg_match('/\A[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}\z/i', $account['uuid'])));
+            $primary = array_values(array_filter($eligible, static fn ($account) => ($account['isPrimary'] ?? false) === true));
+            $selected = count($primary) === 1 ? $primary[0] : (count($eligible) === 1 ? $eligible[0] : null);
+            if ($selected) {
+                $user += ['uuid' => strtolower($selected['uuid']), 'minecraft_name' => mb_substr((string) $selected['username'], 0, 50)];
+            }
+        }
+        return $user;
     }
 
-    private static function request(string $url, array $headers, ?array $form = null): array
+    public static function saveProfile(Store $db, array $user, bool $admin = false): void
+    {
+        $existing = $db->get('user', $user['id']) ?? [];
+        if (isset($existing['uuid']) && ($db->get('uuid', $existing['uuid'])['user'] ?? '') === $user['id']) {
+            $db->delete('uuid', $existing['uuid']);
+        }
+        if (isset($existing['link_code'])) {
+            $db->delete('link', $existing['link_code']);
+        }
+        if (($existing['uuid'] ?? '') !== ($user['uuid'] ?? '')) {
+            $db->delete('balance', $user['id']);
+        }
+        unset($existing['uuid'], $existing['minecraft_name'], $existing['minecraft_source'], $existing['link_code']);
+        if (isset($user['uuid'])) {
+            $owner = $db->get('uuid', $user['uuid'])['user'] ?? null;
+            if ($owner !== null && $owner !== $user['id']) {
+                $claimed = $db->get('user', $owner);
+                if (!$claimed || ($claimed['minecraft_source'] ?? '') !== 'portal') {
+                    if ($claimed && ($claimed['uuid'] ?? '') === $user['uuid']) {
+                        unset($claimed['uuid'], $claimed['minecraft_name']);
+                        $db->put('user', $owner, $claimed);
+                        $db->delete('balance', $owner);
+                    }
+                    $owner = null;
+                }
+            }
+            if ($owner !== null && $owner !== $user['id']) {
+                unset($user['uuid'], $user['minecraft_name']);
+            } else {
+                $user['minecraft_source'] = 'portal';
+                $db->put('uuid', $user['uuid'], ['user' => $user['id']]);
+            }
+        }
+        $db->put('user', $user['id'], $user + ['admin' => $admin || ($existing['admin'] ?? false)] + $existing);
+    }
+
+    private static function request(string $url, array $headers, ?array $form = null, bool $allowMissing = false): array
     {
         $curl = curl_init($url);
         $options = [
@@ -56,6 +108,9 @@ final class Portal
         $body = curl_exec($curl);
         $status = curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
         unset($curl);
+        if ($allowMissing && $status === 404) {
+            return [];
+        }
         if (!is_string($body) || $status !== 200 || strlen($body) > 65536) {
             throw new Fault('HydCraft Portal 请求失败（HTTP ' . $status . '）', 502);
         }

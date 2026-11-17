@@ -1,9 +1,3 @@
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  src: url("/assets/HarmonyOS_Sans_SC_Regular.ttf") format("truetype");
-  font-display: swap;
-}
-
 :root {
   color-scheme: light;
   --lobe-font-family: "HarmonyOS Sans SC", "HarmonyOS Sans", sans-serif;
@@ -28,7 +22,8 @@ body, button, input, textarea, [data-theme] { font-family: "HarmonyOS Sans SC", 
 .brand-logo img, img.brand-logo { width: 100% !important; height: auto !important; object-fit: contain; }
 .header-actions { flex: 0 0 auto; }
 .content { flex: 1; padding-block: 23px 48px; }
-.content, .app-tabs [role=tabpanel], .checkout-layout { display: grid; gap: 18px; align-content: start; }
+.content, .app-tabs [role=tabpanel], .checkout-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-content: start; }
+.app-tabs { min-width: 0; }
 .app-tabs [role=tablist] { width: 100%; overflow-x: auto; justify-content: flex-start; }
 .app-tabs [role=tabpanel] { padding-top: 23px; }
 .app-tabs [role=tabpanel][hidden] { display: none; }
@@ -134,3 +129,21 @@ p.muted { line-height: 1.62; }
   .page-title { align-items: flex-start; flex-wrap: wrap; }
   .record { align-items: flex-start; flex-wrap: wrap; }
 }
+.card-product {
+  min-width: 0;
+  padding: 13px;
+  background: #f3f8f5;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+.card-art { display: flex; flex-wrap: wrap; gap: 10px; }
+.card-art > * { flex: 1 1 175px; max-width: 400px; min-width: 0; overflow: hidden; border-radius: 12px; }
+.card-art img { width: 100%; height: auto; object-fit: contain; }
+.text-card {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 18px;
+  padding: 16px; aspect-ratio: 1.65; background: #123d34; color: #f4fdf8;
+}
+.text-card strong { font-size: 18px; }
+.documentation pre { max-width: 100%; overflow: auto; }
+.documentation table { width: max-content; max-width: 100%; }
+.documentation { overflow-x: auto; }

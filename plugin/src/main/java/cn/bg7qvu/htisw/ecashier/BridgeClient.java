@@ -50,15 +50,6 @@ final class BridgeClient implements AutoCloseable {
         }
     }
 
-    boolean link(JsonObject command) {
-        Connection connection = current;
-        if (connection == null || connection.nonce == null) {
-            return false;
-        }
-        connection.send(command);
-        return true;
-    }
-
     private void submit(Runnable job) {
         if (!loop.isShutdown()) {
             try {
