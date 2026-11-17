@@ -1,0 +1,14 @@
+{
+  "name": "htisw/union-cashier",
+  "require": {
+    "php": "^8.2",
+    "ext-curl": "*",
+    "ext-mbstring": "*",
+    "ext-pdo": "*",
+    "ext-openssl": "*",
+    "workerman/webman-framework": "^2.1",
+    "monolog/monolog": "^3.0",
+    "predis/predis": "^3.0"
+  },
+  "autoload": {"psr-4": {"Cashier\\": "src/"}}
+}

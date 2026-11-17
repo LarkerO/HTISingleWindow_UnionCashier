@@ -1,0 +1,18 @@
+{
+  "name": "union-cashier",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@lobehub/ui": "6.16.1",
+    "motion": "14.14.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.0"
+  }
+}

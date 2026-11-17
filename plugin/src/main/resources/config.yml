@@ -1,0 +1,12 @@
+websocket: ws://127.0.0.1:8788
+backend-public-key: backend-public.pem
+private-key: plugin-private.pem
+vault:
+  enabled: true
+  # Optional Vault Economy provider name as reported in the server console.
+  provider: ''
+scoreboard:
+  enabled: true
+  objective: city_balance
+  # Create a dummy objective if the named objective does not exist.
+  create-objective: false
