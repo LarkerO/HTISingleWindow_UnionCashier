@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 namespace Cashier;
@@ -9,6 +9,19 @@ use Workerman\Protocols\Http\Session\FileSessionHandler;
 
 final class Sessions extends FileSessionHandler
 {
+    public static function configure(): void
+    {
+        // 配置安全的Session Cookie参数
+        Session::$cookieParams = [
+            'lifetime' => 7200,           // 2小时
+            'path' => '/',
+            'domain' => '',
+            'secure' => true,             // HTTPS only
+            'httponly' => true,           // 防止XSS
+            'samesite' => 'Lax',          // 防止CSRF
+        ];
+    }
+
     public static function redis(string $uri): Client
     {
         if (!preg_match('/\A(?:redis|rediss|tcp|tls):\/\//', $uri)) {

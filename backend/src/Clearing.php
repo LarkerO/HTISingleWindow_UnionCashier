@@ -304,6 +304,43 @@ final class Clearing
             $this->cards->eligible($order, $card['number'], $order['amount'], $this->wallet($user, $order['env'], false) !== null) !== null));
     }
 
+    public function paymentOrder(string $user): array
+    {
+        $cards = array_values(array_filter($this->db->list('card', $user), static fn (array $card) =>
+            $card['owner'] === $user && $card['state'] === 'active'));
+        $methods = $this->db->get('payment_order', $user)['methods'] ?? self::RAILS;
+        $available = [...self::RAILS, ...array_map(static fn (array $card) => 'card:' . $card['number'], $cards)];
+        return [
+            'methods' => array_values(array_intersect($methods, $available)),
+            'cards' => array_map(static fn (array $card) => [
+                'number' => $card['number'], 'name' => $card['terms']['name'], 'env' => $card['env'],
+            ], $cards),
+        ];
+    }
+
+    public function savePaymentOrder(string $user, mixed $methods): array
+    {
+        if (!is_array($methods) || !array_is_list($methods) || count($methods) > 8) {
+            throw new Fault('支付顺序最多可包含 8 种支付方式');
+        }
+        return $this->db->write(function () use ($user, $methods) {
+            $cards = $this->paymentOrder($user)['cards'];
+            $available = [...self::RAILS, ...array_map(static fn (array $card) => 'card:' . $card['number'], $cards)];
+            $seen = [];
+            foreach ($methods as $method) {
+                if (!is_string($method) || !in_array($method, $available, true) || isset($seen[$method])) {
+                    throw new Fault('支付顺序包含重复或不可用的支付方式');
+                }
+                $seen[$method] = true;
+            }
+            if (array_diff(self::RAILS, $methods)) {
+                throw new Fault('支付顺序须包含 Vault 和计分板');
+            }
+            $this->db->put('payment_order', $user, ['methods' => $methods]);
+            return ['methods' => $methods, 'cards' => $cards];
+        });
+    }
+
     public function playerAction(array $user, string $id, string $action, array $methods = []): array
     {
         return $this->db->write(function () use ($user, $id, $action, $methods) {

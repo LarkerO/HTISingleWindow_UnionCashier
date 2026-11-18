@@ -101,6 +101,9 @@ final class Http
                 if ($path === 'card-types') {
                     return $this->json($clearing->cards->issuance($user, (string) $request->get('issuer', '')));
                 }
+                if ($path === 'payment-order') {
+                    return $this->json($clearing->paymentOrder($id));
+                }
                 if ($path === 'payment-limits') {
                     return $this->json(['limits' => $db->list('payment_limit', $id)]);
                 }
@@ -137,7 +140,8 @@ final class Http
                 if (preg_match('~^checkout/([0-9a-f]{32})$~D', $path, $match)) {
                     $order = $clearing->playerOrder($user, $match[1]);
                     return $this->json(['order' => $this->playerView($order),
-                        'cards' => $order['status'] === 'pending' ? $clearing->paymentCards($user, $order) : []]);
+                        'cards' => $order['status'] === 'pending' ? $clearing->paymentCards($user, $order) : [],
+                        'payment_order' => $order['status'] === 'pending' ? $clearing->paymentOrder($id)['methods'] : []]);
                 }
                 if (preg_match('~^merchants/([0-9a-f]{32})$~D', $path, $match)) {
                     $merchant = $clearing->manage($user, $match[1]);
@@ -176,6 +180,8 @@ final class Http
                     });
                 case 'card-art':
                     return $this->json(['id' => $clearing->cards->addImage($id, $body)]);
+                case 'payment-order':
+                    return $this->json($clearing->savePaymentOrder($id, $body['methods'] ?? null));
                 case 'payment-limits':
                     return $this->json($clearing->limits->save($id, $body));
                 case 'balance':
