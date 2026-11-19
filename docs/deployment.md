@@ -34,17 +34,19 @@ Linux 前台运行 `php start.php start`，后台运行 `php start.php start -d`
 
 | 环境变量 | 默认 |
 | --- | --- |
-| `CASHIER_HTTP_LISTEN` | `127.0.0.1:8787` |
-| `CASHIER_WS_LISTEN` | `127.0.0.1:8788` |
+| `CASHIER_HTTP_LISTEN` | `127.0.0.1:48787` |
+| `CASHIER_WS_LISTEN` | `127.0.0.1:48788` |
 | `CASHIER_RUNTIME_DIR` | `backend/runtime/`，自定义时请使用独占的绝对路径 |
 | `CASHIER_OPENSSL` | `openssl` |
 
 1. 在 Portal 创建 OAuth2 客户端，开通 `profile`，登记 `<清算网站地址>/oauth/callback`。
 2. 打开 `/install`，输入命令生成的安装口令。选择 SQLite 即可创建本地库。使用 MySQL 或 PostgreSQL 时先建空库并授予建表、建索引和读写权限。
 3. 输入 Portal 客户端配置，完成登录测试。该账号成为超级管理员。授权返回后，第三步显示 Portal 登录与平台 SM2 密钥生成结果。失败时可在同一步查看原因并重新授权。
-4. 正式安装时，Portal 和清算站点地址必须使用 HTTPS。反向代理可将 HTTP 转发至 8787，将 WebSocket upgrade 转发至 8788。开发环境可直接使用 HTTP/WS。
+4. 正式安装时，Portal 和清算站点地址必须使用 HTTPS。反向代理可将 HTTP 转发至 48787，将 WebSocket upgrade 转发至 48788。开发环境可直接使用 HTTP/WS。
 
 开发和正式部署共用同一份程序。各实例应使用独立运行时目录、数据库和密钥。前端构建产物由 Webman 同源提供。
+
+前端开发运行 `pnpm dev`，默认地址为 `http://127.0.0.1:48000`，API 代理指向 `http://127.0.0.1:48787`。构建后可运行 `pnpm exec vite preview`，默认地址为 `http://127.0.0.1:48001`。两个前端端口被占用时均直接报错，不自动递增。项目服务默认端口统一位于 48000–49000 范围。升级已有部署时，请同步修改自定义监听环境变量、反向代理 upstream、插件现有 `config.yml` 中的 WebSocket 地址，以及 Portal 中已登记的本地 OAuth 回调地址；已有配置不会被默认值覆盖。
 
 ## 配对 Minecraft 插件
 

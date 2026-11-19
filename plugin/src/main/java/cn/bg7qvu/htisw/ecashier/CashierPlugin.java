@@ -23,7 +23,7 @@ public final class CashierPlugin extends JavaPlugin {
             Path data = getDataFolder().toPath();
             Path privateKey = data.resolve(getConfig().getString("private-key", "plugin-private.pem"));
             Path backendKey = data.resolve(getConfig().getString("backend-public-key", "backend-public.pem"));
-            URI endpoint = URI.create(getConfig().getString("websocket", "ws://127.0.0.1:8788"));
+            URI endpoint = URI.create(getConfig().getString("websocket", "ws://127.0.0.1:48788"));
             if (!"ws".equals(endpoint.getScheme()) && !"wss".equals(endpoint.getScheme())) {
                 throw new IllegalArgumentException("websocket must use ws:// or wss://");
             }

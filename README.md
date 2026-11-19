@@ -9,7 +9,7 @@
 1. 在 `frontend/` 运行 `pnpm install --frozen-lockfile` 和 `pnpm build`。
 2. 在 `backend/` 运行 `composer install --no-dev` 和 `php start.php setup-token`。
 3. Windows 运行 `php start.php`。Linux 运行 `php start.php start`。
-4. 打开 [本地安装向导](http://127.0.0.1:8787/install)，配置数据库和 Portal OAuth 客户端。
+4. 打开 [本地安装向导](http://127.0.0.1:48787/install)，配置数据库和 Portal OAuth 客户端。
 5. 用 `mvn -f plugin/pom.xml clean package` 构建插件，并按部署指南登记游戏端公钥。
 
 ## 文档

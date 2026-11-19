@@ -1,4 +1,4 @@
-websocket: ws://127.0.0.1:8788
+websocket: ws://127.0.0.1:48788
 backend-public-key: backend-public.pem
 private-key: plugin-private.pem
 vault:

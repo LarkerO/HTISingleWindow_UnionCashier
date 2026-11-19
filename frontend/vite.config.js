@@ -25,9 +25,12 @@ export default defineConfig({
       },
     },
   },
+  preview: { host: '127.0.0.1', port: 48001, strictPort: true },
   server: {
     host: '127.0.0.1',
+    port: 48000,
+    strictPort: true,
     fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
-    proxy: Object.fromEntries(['/api', '/oauth', '/open'].map(path => [path, 'http://127.0.0.1:8787'])),
+    proxy: Object.fromEntries(['/api', '/oauth', '/open'].map(path => [path, 'http://127.0.0.1:48787'])),
   },
 });

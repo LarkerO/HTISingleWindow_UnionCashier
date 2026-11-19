@@ -31,7 +31,7 @@ function rejects(callable $call): void
 if (!is_dir(Config::runtime())) {
     mkdir(Config::runtime(), 0700, true);
 }
-$settings = ['dsn' => 'sqlite::memory:', 'origin' => 'http://localhost:8787',
+$settings = ['dsn' => 'sqlite::memory:', 'origin' => 'http://localhost:48787',
     'keys' => ['private' => random_bytes(32)]];
 $db = new Store($settings);
 $db->initialize();

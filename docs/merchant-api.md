@@ -62,7 +62,7 @@
 ```sh
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:SM2 -out merchant-private.pem
 openssl pkey -in merchant-private.pem -pubout -out merchant-public.pem
-php backend/bin/merchant.php http://127.0.0.1:8787 MERCHANT_ID KEY_ID merchant-private.pem backend-public.pem sandbox request.json
+php backend/bin/merchant.php http://127.0.0.1:48787 MERCHANT_ID KEY_ID merchant-private.pem backend-public.pem sandbox request.json
 ```
 
 ## 创建普通收银台订单
