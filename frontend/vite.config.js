@@ -14,7 +14,8 @@ export default defineConfig({
   esbuild: { jsx: 'automatic' },
   build: {
     outDir: '../backend/public',
-    emptyOutDir: true,
+    // The independently built mobile frontend lives under public/mobile/.
+    emptyOutDir: false,
     rollupOptions: {
       input: {
         cashier: fileURLToPath(new URL('index.html', import.meta.url)),
@@ -31,6 +32,9 @@ export default defineConfig({
     port: 48000,
     strictPort: true,
     fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
-    proxy: Object.fromEntries(['/api', '/oauth', '/open'].map(path => [path, 'http://127.0.0.1:48787'])),
+    proxy: {
+      ...Object.fromEntries(['/api', '/oauth', '/open'].map(path => [path, 'http://127.0.0.1:48787'])),
+      '/mobile': 'http://127.0.0.1:48002',
+    },
   },
 });

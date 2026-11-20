@@ -7,6 +7,7 @@
 ## 快速开始
 
 1. 在 `frontend/` 运行 `pnpm install --frozen-lockfile` 和 `pnpm build`。
+   在独立玩家移动端 `mobile/` 同样运行 `pnpm install --frozen-lockfile` 和 `pnpm build`。
 2. 在 `backend/` 运行 `composer install --no-dev` 和 `php start.php setup-token`。
 3. Windows 运行 `php start.php`。Linux 运行 `php start.php start`。
 4. 打开 [本地安装向导](http://127.0.0.1:48787/install)，配置数据库和 Portal OAuth 客户端。

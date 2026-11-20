@@ -10,6 +10,10 @@ import Install from './Install';
 import { Checkout } from './Player';
 import Workspace, { workspaceRoute } from './Workspace';
 import AccountMenu from './AccountMenu';
+import { mobileCheckout } from './mobile-route.mjs';
+
+const mobileTarget = mobileCheckout(location.pathname, location.search, navigator.userAgent, navigator.maxTouchPoints);
+if (mobileTarget) location.replace(mobileTarget);
 
 function App() {
   const status = useLoad('status', 5000);
@@ -62,6 +66,6 @@ function App() {
   </>;
 }
 
-createRoot(document.getElementById('root')).render(
+if (!mobileTarget) createRoot(document.getElementById('root')).render(
   <ConfigProvider motion={motion} locale="zh-CN" enableCustomFonts={false}><App /></ConfigProvider>,
 );

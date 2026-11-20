@@ -18,6 +18,9 @@
 cd frontend
 pnpm install --frozen-lockfile
 pnpm build
+cd ../mobile
+pnpm install --frozen-lockfile
+pnpm build
 cd ../backend
 composer install --no-dev
 php start.php setup-token
@@ -45,6 +48,23 @@ Linux 前台运行 `php start.php start`，后台运行 `php start.php start -d`
 4. 正式安装时，Portal 和清算站点地址必须使用 HTTPS。反向代理可将 HTTP 转发至 48787，将 WebSocket upgrade 转发至 48788。开发环境可直接使用 HTTP/WS。
 
 开发和正式部署共用同一份程序。各实例应使用独立运行时目录、数据库和密钥。前端构建产物由 Webman 同源提供。
+
+## 两个前端并行运行
+
+全局字体统一为 D-DIN 优先、HarmonyOS Sans 回退。使用固定版本 npm CDN 的 WOFF2 与中文分片，两个前端和文档页复用相同资源 URL。来源、体积和缓存说明见[全局字体与流量](fonts.md)。
+
+`frontend/` 是原完整面板（Lobe UI），`mobile/` 是普通玩家移动钱包与收银台（WingoUI + React + Vite）。二者使用相同后端、Portal OAuth 会话和 CSRF 保护。
+
+| 项目 | 开发入口 | 静态预览 | 构建目录 |
+| --- | --- | --- | --- |
+| `frontend/` | `http://127.0.0.1:48000/` | 48001 | `backend/public/` |
+| `mobile/` | `http://127.0.0.1:48002/mobile/` | 48003 | `backend/public/mobile/` |
+
+两个项目各自固定 pnpm 10.34.9，分别维护并提交 `pnpm-lock.yaml`。部署时都执行 `pnpm install --frozen-lockfile` 和 `pnpm build`，构建顺序任意；原前端保留移动端产物，移动端只清理自己的 `mobile/` 输出目录。打包发布时包含完整 `backend/public/`。保留旧哈希资源便于已打开的页面继续加载，发布系统可在旧版本退出后清理过期资源。
+
+Webman 为 `/mobile/`、`/mobile/checkout/{id}` 返回移动入口，手机访问 `/checkout/{id}` 自动跳转。`?desktop=1` 可使用原收银台。站点反向代理应将 `/mobile` 与 `/mobile/checkout/*`、`/checkout/*`、`/api/*`、`/oauth/*` 转发给 Webman；若代理直接提供静态文件，需要为 `/mobile/checkout/*` 回退到移动 `index.html`，不要回退到原前端入口。保持两个前端同源，无需额外跨域 Cookie 或 OAuth 客户端。
+
+本地热更新时分别启动两个 `pnpm dev`；48000 将 `/mobile` 代理到 48002。Portal 授权会回到安装配置中的 `origin`，跨登录流程应在 Webman 构建入口或统一的同源开发代理验收。移动端静态预览不代理后端，联调请使用开发服务器或 Webman。
 
 前端开发运行 `pnpm dev`，默认地址为 `http://127.0.0.1:48000`，API 代理指向 `http://127.0.0.1:48787`。构建后可运行 `pnpm exec vite preview`，默认地址为 `http://127.0.0.1:48001`。两个前端端口被占用时均直接报错，不自动递增。项目服务默认端口统一位于 48000–49000 范围。升级已有部署时，请同步修改自定义监听环境变量、反向代理 upstream、插件现有 `config.yml` 中的 WebSocket 地址，以及 Portal 中已登记的本地 OAuth 回调地址；已有配置不会被默认值覆盖。
 
@@ -77,6 +97,11 @@ openssl pkey -in plugin-private.pem -pubout -out plugin-public.pem
 
 ```sh
 php backend/tests/clearing.php
+php backend/tests/mobile.php
+cd mobile
+pnpm test
+pnpm build
+cd ..
 mvn -f plugin/pom.xml clean package
 ```
 

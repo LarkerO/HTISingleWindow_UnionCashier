@@ -9,6 +9,8 @@
 | `GET /` | 玩家、商户、系统管理面板和接口文档 |
 | `GET /install` | 安装向导 |
 | `GET /checkout/{id}` | 玩家确认付款、预授权或签约 |
+| `GET /mobile/` | 独立玩家移动钱包，WingoUI + React + Vite |
+| `GET /mobile/checkout/{id}` | 独立移动收银台，复用同源登录会话和付款接口 |
 | `GET /api/platform-key` | 匿名获取平台 SM2 公钥，未安装时返回空值 |
 | `GET /oauth/login?next=/checkout/{id}` | 跳往 Portal，`next` 可省略 |
 | `GET /oauth/callback` | 校验 state，并用 PKCE verifier 向 Portal 换取身份。失败时返回安装页或登录前页面 |
@@ -23,6 +25,7 @@ Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/use
 | --- | --- | --- |
 | `GET /api/status` | 无 | `installed`、`csrf`、`user`、`mode`、`plugin_online`、`public_key`、`oauth_error`、`oauth_setup_retry` |
 | `GET /api/account` | 无 | 本人 `orders`、上次查询的 `balance` |
+| `GET /api/player-wallet?environment=live` | `environment=live` 或 `sandbox`，默认正式 | 本人钱包快照：`environment`、`available`、`balances`、`requested`、`complete`、已激活 `cards`。正式读取当前已验证 UUID 的余额缓存，沙箱读取隔离账本；不触发扣款。环境非法返回 HTTP 400、`INVALID_ENVIRONMENT` |
 | `GET /api/checkout/{id}` | 清算订单 ID | 订单与可用预付卡 |
 | `GET /api/cards` | 无 | `catalog`、`cards`、`operations`、`events` |
 | `GET /api/card-types?issuer=` | 商户号，留空为平台卡 | 有权限的发行方卡种和流水 |
@@ -43,6 +46,10 @@ Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/use
 | `POST /api/merchant` | 见下表 | 商户配置或调试结果 |
 | `POST /api/plugin` | 插件 SM2 公钥 `public_key` | `ok` |
 | `POST /api/review` | 指令 `id`，资金是否实际变更 `applied` | `ok` |
+
+移动端页面与原前端共用 `/api`、`/oauth` 和 HttpOnly 会话 Cookie。原 `/checkout/{id}` 检测手机 UA 后跳往 `/mobile/checkout/{id}`，可用 `?desktop=1` 保留原界面。浏览器补充识别使用桌面 UA 的 iPadOS。`/oauth/login` 的 `next` 仅允许 `/`、`/checkout/{id}`、`/mobile/`、`/mobile/checkout/{id}`，拒绝外部回跳地址。
+
+移动收银台先加载订单和对应环境钱包，游戏余额异步返回后展示金额；无可用游戏余额时显示不可用，不按零余额处理。界面绘制后打开不可拖拽关闭的付款 Drawer。`POST /api/checkout` 返回 `processing` 表示受理，必须通过 `GET /api/checkout/{id}` 继续查询至 `paid`、`held`、`active` 或失败。网络中断后只查询原订单，不自动重发确认。预付卡组合补扣及预授权、签约顺序在确认前展示，沿用现有清算逻辑。
 
 | 浏览器入口 | action | 业务值 |
 | --- | --- | --- |

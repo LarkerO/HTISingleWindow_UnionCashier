@@ -1,0 +1,216 @@
+{
+  "$schema": "https://wingo-ui.com/schema/wingo-ui.json",
+  "registry": "https://wingo-ui.com",
+  "framework": "vite",
+  "tsx": true,
+  "srcDir": true,
+  "aliases": {
+    "ui": "@/components/ui",
+    "blocks": "@/components/blocks",
+    "hooks": "@/hooks",
+    "lib": "@/lib",
+    "utils": "@/lib/utils"
+  },
+  "css": "src/index.css",
+  "packageManager": "pnpm",
+  "items": {
+    "alert": {
+      "version": "1.0.0",
+      "hash": "sha256-3e72807f16ca69d2fd25",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.368Z",
+      "files": {
+        "src/components/ui/alert.tsx": {
+          "sha256": "730d35015687f0e11deb9606154a3174a2a83ef1609c747ae437c3dd587f3b65"
+        }
+      }
+    },
+    "animated-counter": {
+      "version": "1.0.1",
+      "hash": "sha256-a530c08f809ace0be1a4",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.372Z",
+      "files": {
+        "src/components/ui/animated-counter.tsx": {
+          "sha256": "6dd007a1e46e850c644d5fcba2ee2cfd9f4d21402030c6d5dbdf9b905107ee08"
+        }
+      }
+    },
+    "avatar": {
+      "version": "1.0.0",
+      "hash": "sha256-a81e1042bf83f066bd6f",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.367Z",
+      "files": {
+        "src/components/ui/avatar.tsx": {
+          "sha256": "37fb52d5d56ea2be45cc4c58eed31d6805f1800e838ef52a2b0d609875a02498"
+        }
+      }
+    },
+    "badge": {
+      "version": "1.0.0",
+      "hash": "sha256-d10ef26df1b93f13d452",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.360Z",
+      "files": {
+        "src/components/ui/badge.tsx": {
+          "sha256": "d1686fc7db6b87e5b156fe3514ea9c84ee1c0b25ba1075bbfcc2fd6a92e5278d"
+        }
+      }
+    },
+    "button": {
+      "version": "1.0.0",
+      "hash": "sha256-adf1989c7690f4cf550c",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.356Z",
+      "files": {
+        "src/components/ui/button.tsx": {
+          "sha256": "20c6b6a680528c00a7c8409aa58e4b39a0a4b9596382dea71dc95c6b34c636ba"
+        }
+      }
+    },
+    "card": {
+      "version": "1.0.0",
+      "hash": "sha256-9e47b8afc40edb185fb7",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.358Z",
+      "files": {
+        "src/components/ui/card.tsx": {
+          "sha256": "99ae720dfe211584b014c2b412abcf8445edefc73b8a462ea82bd38e66d9564c"
+        }
+      }
+    },
+    "drawer": {
+      "version": "1.0.1",
+      "hash": "sha256-6617b27cf6ccbecd5ca9",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.366Z",
+      "files": {
+        "src/components/ui/drawer.tsx": {
+          "sha256": "ce38855c21d7bd97746f96846023f41a73ed106abb6fb90bfb9e27957c38b9ba"
+        }
+      }
+    },
+    "empty-state": {
+      "version": "1.0.0",
+      "hash": "sha256-e776654bec5ff9b61777",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.369Z",
+      "files": {
+        "src/components/ui/empty-state.tsx": {
+          "sha256": "ac143614a4311424bc1134d4af24a11536dbf4266f63055f34804eefe317c0fc"
+        }
+      }
+    },
+    "motion": {
+      "version": "1.1.0",
+      "hash": "sha256-fc27e081a01f44096b81",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.352Z",
+      "files": {
+        "src/lib/motion.ts": {
+          "sha256": "a19b0d035d57037958bed49d355cf26283065a9512472d055f9fa3932a44665b"
+        }
+      }
+    },
+    "skeleton": {
+      "version": "1.0.0",
+      "hash": "sha256-8ece59d2798dcf6f4367",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.371Z",
+      "files": {
+        "src/components/ui/skeleton.tsx": {
+          "sha256": "273d48f47dfe26180a92ea5b74b142eae355d81d82a1ff5a03cdb3b42d74635a"
+        }
+      }
+    },
+    "spinner": {
+      "version": "1.0.0",
+      "hash": "sha256-fe2945819ab5e98a8a5b",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.370Z",
+      "files": {
+        "src/components/ui/spinner.tsx": {
+          "sha256": "ee3cc03347eac41ece3dc2a2719389ead0e98760962516b3fab9b1fe6ea46699"
+        }
+      }
+    },
+    "tabs": {
+      "version": "1.0.0",
+      "hash": "sha256-6822d93523141f3b6310",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.364Z",
+      "files": {
+        "src/components/ui/tabs.tsx": {
+          "sha256": "37602426a47127f45d360850f3c63aa2b24bdbe5ecd8d2226e01bb957a5221c6"
+        }
+      }
+    },
+    "tones": {
+      "version": "1.0.0",
+      "hash": "sha256-50919db9ac22b6056215",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.353Z",
+      "files": {
+        "src/lib/tones.ts": {
+          "sha256": "30e9db7bec6ce24e0c41a14ae4ffae9dc28338e6f1770845a47fd78c9d8a6757"
+        }
+      }
+    },
+    "ui-config": {
+      "version": "1.0.0",
+      "hash": "sha256-cad4f717267d4c78f934",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.354Z",
+      "files": {
+        "src/lib/ui-config.tsx": {
+          "sha256": "b8963eb237e5d4e856d42c9c939580cae7b16a2990478c7d5fefaad901855c50"
+        }
+      }
+    },
+    "use-controllable-state": {
+      "version": "1.0.0",
+      "hash": "sha256-647c54f84758256d2ef3",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.361Z",
+      "files": {
+        "src/hooks/use-controllable-state.ts": {
+          "sha256": "252ab07d8cb70186499dafb901d97326bda9aea30486b295a4731e0513523311"
+        }
+      }
+    },
+    "use-media-query": {
+      "version": "1.0.0",
+      "hash": "sha256-7b34686867b45bbf38f1",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.345Z",
+      "files": {
+        "src/hooks/use-media-query.ts": {
+          "sha256": "725141918e1d3caeea779f26b6274b9463802ab3811c49b1921c6e56f3411cfb"
+        }
+      }
+    },
+    "use-scroll-edges": {
+      "version": "1.0.0",
+      "hash": "sha256-e23ff7dcb3c317eee306",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.362Z",
+      "files": {
+        "src/hooks/use-scroll-edges.ts": {
+          "sha256": "0a685c2d844b75ef1146776d8a1f464bb49e430b85e61e325ceb7317bd573316"
+        }
+      }
+    },
+    "use-shortcut": {
+      "version": "1.0.0",
+      "hash": "sha256-63415a7565ddd9125c6b",
+      "access": "free",
+      "installedAt": "2026-11-20T16:51:23.365Z",
+      "files": {
+        "src/hooks/use-shortcut.ts": {
+          "sha256": "f64f439e418acee45dc5395cafc27a2928ce13210ee5d3f6ad919ff457e6cf76"
+        }
+      }
+    }
+  }
+}

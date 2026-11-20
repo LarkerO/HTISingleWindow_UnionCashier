@@ -19,8 +19,18 @@ final class Http
 
     public function page(Request $request, string $id = ''): Response
     {
+        if ($id !== '' && $request->get('desktop') !== '1'
+            && preg_match('/Android|iPhone|iPad|iPod|Mobile|Windows Phone/i', $request->header('user-agent', ''))) {
+            return $this->redirect('/mobile/checkout/' . $id);
+        }
         $portal = Config::read()['portal'] ?? null;
         return $this->html('index.html', $portal === null ? '' : ' https: ' . Config::origin($portal));
+    }
+
+    public function mobile(Request $request, string $id = ''): Response
+    {
+        $portal = Config::read()['portal'] ?? null;
+        return $this->html('mobile/index.html', $portal === null ? '' : ' https: ' . Config::origin($portal));
     }
 
     public function documentation(Request $request, string $operation = ''): Response
@@ -32,7 +42,8 @@ final class Http
     {
         $file = BASE_PATH . '/public/' . $entry;
         if (!is_file($file)) {
-            return new Response(503, self::HEADERS, '请先进入 frontend，运行 pnpm install --frozen-lockfile 和 pnpm build');
+            $project = str_starts_with($entry, 'mobile/') ? 'mobile' : 'frontend';
+            return new Response(503, self::HEADERS, '请先进入 ' . $project . '，运行 pnpm install --frozen-lockfile 和 pnpm build');
         }
         return (new Response(200, self::HEADERS + ['Content-Type' => 'text/html; charset=utf-8',
             'Content-Security-Policy' => "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data:{$avatarOrigins}"]))->withFile($file);
@@ -95,6 +106,9 @@ final class Http
             $user = $clearing->user($id);
 
             if ($method === 'GET') {
+                if ($path === 'player-wallet') {
+                    return $this->json((new Wallet($db, $clearing))->snapshot($user, (string) $request->get('environment', 'live')));
+                }
                 if ($path === 'cards') {
                     return $this->json($clearing->cards->account($id) + ['catalog' => $clearing->cards->catalog()]);
                 }
@@ -287,7 +301,7 @@ final class Http
                 return $this->redirect($this->beginOAuth($session, $setup['config'], '/', true));
             }
             $next = $request->get('next', '/');
-            if (!is_string($next) || !preg_match('~\A/(?:checkout/[a-f0-9]{32})?\z~', $next)) {
+            if (!is_string($next) || !preg_match('~\A/(?:checkout/[a-f0-9]{32}|mobile/(?:checkout/[a-f0-9]{32})?)?\z~', $next)) {
                 $next = '/';
             }
             return $this->redirect($this->beginOAuth($session, $config, $next, false));

@@ -10,5 +10,8 @@ Route::post('/open/v1', [Http::class, 'merchant']);
 Route::get('/', [Http::class, 'page']);
 Route::get('/install', [Http::class, 'page']);
 Route::get('/checkout/{id:[a-f0-9]{32}}', [Http::class, 'page']);
+Route::get('/mobile', [Http::class, 'mobile']);
+Route::get('/mobile/', [Http::class, 'mobile']);
+Route::get('/mobile/checkout/{id:[a-f0-9]{32}}', [Http::class, 'mobile']);
 Route::get('/docs', [Http::class, 'documentation']);
 Route::get('/docs/{operation:[a-z-]+}', [Http::class, 'documentation']);
