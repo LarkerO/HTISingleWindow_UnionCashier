@@ -1,5 +1,5 @@
 export type Environment = 'live' | 'sandbox';
-export type User = { id: string; name?: string; minecraft_name?: string; uuid?: string; avatar_url?: string };
+export type User = { id: string; name?: string; minecraft_name?: string; minecraft_status?: string; uuid?: string; avatar_url?: string | null };
 export type Status = { installed: boolean; user: User | null; plugin_online: boolean; oauth_error?: string; csrf: string };
 export type Terms = { name: string; combine: boolean; front?: string };
 export type PrepaidCard = { number: string; env: Environment; balance: number; terms: Terms; state: string };

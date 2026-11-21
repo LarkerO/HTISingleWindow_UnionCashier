@@ -67,6 +67,14 @@ $op = $clearing->cards->buy($buyer, $purchase);
 expect($op['status'] === 'completed' && strlen($op['secret']) === 32, 'Purchase credentials');
 $card = $db->write(fn () => $clearing->cards->redeem('buyer', $op));
 $number = $card['number'];
+$cardMethod = 'card:' . $number;
+expect($clearing->paymentOrder('buyer')['methods'] === Clearing::RAILS, 'Default order for existing players');
+$orderPreference = [$cardMethod, 'scoreboard', 'vault'];
+expect($clearing->savePaymentOrder('buyer', $orderPreference)['methods'] === $orderPreference, 'Save payment order');
+expect($clearing->paymentOrder('buyer')['methods'] === $orderPreference, 'Read ordered payment methods');
+rejects(fn () => $clearing->savePaymentOrder('recipient', $orderPreference));
+rejects(fn () => $clearing->savePaymentOrder('buyer', ['scoreboard', 'scoreboard', 'vault']));
+expect($clearing->paymentOrder('buyer')['methods'] === $orderPreference, 'Rejected update preserves order');
 rejects(fn () => $db->write(fn () => $clearing->cards->redeem('recipient', $op)));
 expect(!isset($clearing->cards->buy($buyer, $purchase)['secret']), 'PIN must disappear after activation');
 
@@ -86,6 +94,7 @@ $command(['action' => 'refund', 'request_id' => 'refund', 'order_id' => $hold['i
 expect($db->get('card', $number)['balance'] === 50, 'Card refund returned to original funding instrument');
 $clearing->cards->transfer($buyer, ['number' => $number, 'user' => 'recipient']);
 expect($db->get('card', $number)['balance'] === 47, 'Transfer fee');
+expect($clearing->paymentOrder('buyer')['methods'] === ['scoreboard', 'vault'], 'Transferred card removed from previous owner order');
 $close = $clearing->cards->close($recipient, ['number' => $number, 'request_id' => 'close']);
 $drain();
 expect($close['amount'] === 40 && $db->get('card', $number)['state'] === 'closed', 'Card return refund');

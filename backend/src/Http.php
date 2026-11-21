@@ -151,6 +151,11 @@ final class Http
                     $this->admin($user);
                     return $this->json(['plugin_set' => !empty($config['plugin_public']), 'reviews' => $db->list('review')]);
                 }
+                if ($path === 'minecraft-binding') {
+                    $this->admin($user);
+                    return $this->json((new MinecraftBindings($db))->inspect($user,
+                        Clearing::text($request->get(), 'user')));
+                }
                 if (preg_match('~^checkout/([0-9a-f]{32})$~D', $path, $match)) {
                     $order = $clearing->playerOrder($user, $match[1]);
                     return $this->json(['order' => $this->playerView($order),
@@ -222,6 +227,9 @@ final class Http
                     $this->admin($user);
                     $this->configurePlugin((string) ($body['public_key'] ?? ''));
                     return $this->json(['ok' => true]);
+                case 'minecraft-binding':
+                    $this->admin($user);
+                    return $this->json((new MinecraftBindings($db))->change($user, $body));
                 case 'review':
                     $this->admin($user);
                     if (!is_bool($body['applied'] ?? null)) {
@@ -505,7 +513,7 @@ final class Http
     private function publicUser(?array $user): ?array
     {
         if ($user !== null) {
-            if (($user['minecraft_source'] ?? '') !== 'portal') {
+            if (!in_array($user['minecraft_source'] ?? '', ['portal', 'admin'], true)) {
                 unset($user['uuid']);
                 if (!isset($user['minecraft_status'])) {
                     unset($user['minecraft_name']);

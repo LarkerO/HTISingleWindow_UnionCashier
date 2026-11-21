@@ -1,6 +1,6 @@
 import {
   BookOpen, ClipboardCheck, Coins, CreditCard, FileSpreadsheet, Handshake, History,
-  Link2, Plug, ReceiptText, ShoppingBag, SlidersHorizontal,
+  Link2, ListOrdered, Plug, ReceiptText, ShoppingBag, SlidersHorizontal,
   Store, UserRound, WalletCards,
 } from 'lucide-react';
 import { Account } from './Player';
@@ -13,24 +13,25 @@ const cardPages = [
   ['cards', '预付卡商城'], ['activate', '激活预付卡'], ['wallet', '我的预付卡'], ['card-events', '预付卡使用记录'],
 ];
 const playerPages = [
-  ['账户', [['account', '账户概览'], ['orders', '交易记录'], ['agreements', '免密签约'], ['limits', '支付限额'], ['statement', '付款对账']]],
+  ['账户', [['account', '账户概览'], ['orders', '交易记录'], ['agreements', '免密签约'], ['payment-order', '支付顺序调整'], ['limits', '支付限额'], ['statement', '付款对账']]],
   ['预付卡', cardPages],
 ];
 const merchantPages = [['商户工作台', [['merchant', '我的商户']]], ['开发者', [['docs', '开放接口文档']]]];
 const adminPages = [
   ['商户', [['admin/merchant', '商户审核与管理']]],
   ['平台预付卡', [['admin/cards', '发行管理'], ['admin/bind', '代玩家绑卡'], ['admin/card-events', '发行卡片使用记录'], ['admin/fund', '折扣补贴金']]],
-  ['系统', [['admin/plugin', 'Bukkit 插件连接'], ['admin/review', '资金操作复核']]],
+  ['系统', [['admin/minecraft-binding', 'Minecraft UUID 绑定'], ['admin/plugin', 'Bukkit 插件连接'], ['admin/review', '资金操作复核']]],
 ];
 const playerKeys = playerPages.flatMap(([, pages]) => pages.map(([key]) => key));
 const adminKeys = adminPages.flatMap(([, pages]) => pages.map(([key]) => key));
 
 const pageIcons = {
-  account: UserRound, orders: ReceiptText, agreements: Handshake, limits: SlidersHorizontal,
+  account: UserRound, orders: ReceiptText, agreements: Handshake, limits: SlidersHorizontal, 'payment-order': ListOrdered,
   statement: FileSpreadsheet, cards: ShoppingBag, activate: CreditCard, wallet: WalletCards,
   'card-events': History, merchant: Store, docs: BookOpen,
   'admin/merchant': Store, 'admin/cards': CreditCard, 'admin/bind': Link2,
   'admin/card-events': History, 'admin/fund': Coins, 'admin/plugin': Plug, 'admin/review': ClipboardCheck,
+  'admin/minecraft-binding': Link2,
 };
 
 export function workspaceRoute(user, hash) {

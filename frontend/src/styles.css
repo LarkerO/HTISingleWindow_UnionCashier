@@ -192,3 +192,17 @@ p.muted { line-height: 1.62; }
 @media (max-width: 800px) {
   .docs-content .workspace { grid-template-columns: minmax(0, 1fr); }
 }
+
+.payment-radio-list label {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.payment-radio-list label:has([aria-checked=true]) {
+  border-color: var(--accent);
+  background: #ecf7f2;
+}
+.method-label { min-width: 0; }
+.method-detail { font-size: 12px; }
+.payment-order-trigger.payment-order-trigger { justify-content: space-between; height: auto; min-height: 46px; padding-block: 8px; white-space: normal; }

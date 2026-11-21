@@ -70,12 +70,18 @@ final class Portal
             return null;
         }
         $picture = trim($picture);
-        if (str_starts_with($picture, '/') && !str_starts_with($picture, '//')) {
-            $picture = Config::origin($portal) . $picture;
+        if ($picture === '') {
+            return null;
+        }
+        $origin = Config::origin($portal);
+        if (str_starts_with($picture, '//')) {
+            $picture = parse_url($origin, PHP_URL_SCHEME) . ':' . $picture;
+        } elseif (!preg_match('/\A[a-z][a-z0-9+.-]*:/i', $picture)) {
+            $picture = $origin . '/' . ltrim($picture, '/');
         }
         try {
             $url = Config::url($picture);
-            return str_starts_with($url, 'https://') || Config::origin($url) === Config::origin($portal) ? $url : null;
+            return str_starts_with($url, 'https://') || Config::origin($url) === $origin ? $url : null;
         } catch (Fault) {
             return null;
         }
@@ -83,33 +89,77 @@ final class Portal
 
     private static function minecraftProfile(array $accounts): array
     {
-        $verified = array_values(array_filter($accounts, static fn ($account) =>
+        $linked = array_values(array_filter($accounts, static fn ($account) =>
             is_array($account) && ($account['identityKind'] ?? '') === 'AUTHENTICATED'
-            && ($account['status'] ?? '') === 'VERIFIED'));
-        if (!$verified) {
+            && ($account['unlinkedAt'] ?? null) === null));
+        if (!$linked) {
             return ['minecraft_status' => 'unverified'];
         }
-        $primary = array_values(array_filter($verified, static fn ($account) => ($account['isPrimary'] ?? false) === true));
-        $selected = count($primary) === 1 ? $primary[0] : (count($verified) === 1 ? $verified[0] : null);
+        $primary = array_values(array_filter($linked, static fn ($account) => ($account['isPrimary'] ?? false) === true));
+        $selected = count($primary) === 1 ? $primary[0] : (count($linked) === 1 ? $linked[0] : null);
         if ($selected === null) {
             return ['minecraft_status' => 'primary_required'];
         }
-
-        // Portal can verify an AuthMe binding before recording its bound UUID.
-        // playerIdentity.resolvedUuid may come from a match by username alone.
-        $uuid = $selected['uuid'] ?? $selected['playerIdentity']['boundUuid'] ?? null;
-        if (!is_string($uuid) || !preg_match('/\A(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\z/i', $uuid)) {
-            return ['minecraft_status' => 'uuid_missing', 'minecraft_name' => mb_substr((string) ($selected['username'] ?? ''), 0, 50)];
+        if (($selected['status'] ?? '') !== 'VERIFIED') {
+            return ['minecraft_status' => 'unverified'];
         }
-        $compact = strtolower(str_replace('-', '', $uuid));
-        $uuid = vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split($compact, 4));
-        return ['minecraft_status' => 'linked', 'uuid' => $uuid,
-            'minecraft_name' => mb_substr((string) ($selected['username'] ?? ''), 0, 50)];
+
+        // Resolve only the Portal primary account; secondary accounts never supply its UUID.
+        $name = mb_substr((string) ($selected['username'] ?? ''), 0, 50);
+        foreach ([['bound', $selected['uuid'] ?? null],
+            ['bound', $selected['playerIdentity']['boundUuid'] ?? null],
+            ['resolved', $selected['playerIdentity']['resolvedUuid'] ?? null]] as [$origin, $value]) {
+            $uuid = self::normalizeUuid($value);
+            if ($uuid !== null) {
+                return ['minecraft_status' => 'linked', 'uuid' => $uuid, 'minecraft_name' => $name,
+                    'minecraft_uuid_origin' => $origin];
+            }
+        }
+        $observed = [];
+        // Portal counts server-player rows, including the same UUID on several servers.
+        // Deduplicate the actual UUIDs instead of trusting hasUuidConflict/observedUuidCount.
+        $players = $selected['playerIdentity']['observedPlayers'] ?? [];
+        foreach (is_array($players) ? $players : [] as $player) {
+            if (!is_array($player) || !is_string($player['username'] ?? null)
+                || strcasecmp($player['username'], $name) !== 0) {
+                continue;
+            }
+            $uuid = self::normalizeUuid($player['uuid'] ?? null);
+            if ($uuid !== null) {
+                $observed[$uuid] = true;
+            }
+        }
+        if (count($observed) > 1) {
+            return ['minecraft_status' => 'uuid_conflict', 'minecraft_name' => $name];
+        }
+        if ($observed) {
+            return ['minecraft_status' => 'linked', 'uuid' => array_key_first($observed),
+                'minecraft_name' => $name, 'minecraft_uuid_origin' => 'observed'];
+        }
+        return ['minecraft_status' => 'uuid_missing', 'minecraft_name' => $name];
+    }
+
+    public static function normalizeUuid(mixed $value): ?string
+    {
+        if (!is_string($value) || !preg_match('/\A(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\z/i', trim($value))) {
+            return null;
+        }
+        $compact = strtolower(str_replace('-', '', trim($value)));
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split($compact, 4));
     }
 
     public static function saveProfile(Store $db, array $user, bool $admin = false): void
     {
         $existing = $db->get('user', $user['id']) ?? [];
+        $user += ['minecraft_status' => isset($user['uuid']) ? 'linked' : 'not_synced'];
+        $db->put('portal_minecraft', $user['id'], array_intersect_key($user,
+            array_flip(['uuid', 'minecraft_name', 'minecraft_status', 'minecraft_uuid_origin'])));
+        $override = $db->get('minecraft_override', $user['id']);
+        if ($override !== null) {
+            unset($user['uuid'], $user['minecraft_name'], $user['minecraft_status'], $user['minecraft_uuid_origin']);
+            $user += ['uuid' => $override['uuid'], 'minecraft_name' => $override['minecraft_name'],
+                'minecraft_status' => 'linked_manual', 'minecraft_uuid_origin' => 'manual'];
+        }
         if (isset($existing['uuid']) && ($db->get('uuid', $existing['uuid'])['user'] ?? '') === $user['id']) {
             $db->delete('uuid', $existing['uuid']);
         }
@@ -119,12 +169,13 @@ final class Portal
         if (($existing['uuid'] ?? '') !== ($user['uuid'] ?? '')) {
             $db->delete('balance', $user['id']);
         }
-        unset($existing['uuid'], $existing['minecraft_name'], $existing['minecraft_source'], $existing['link_code']);
+        unset($existing['uuid'], $existing['minecraft_name'], $existing['minecraft_source'],
+            $existing['minecraft_uuid_origin'], $existing['link_code']);
         if (isset($user['uuid'])) {
             $owner = $db->get('uuid', $user['uuid'])['user'] ?? null;
             if ($owner !== null && $owner !== $user['id']) {
                 $claimed = $db->get('user', $owner);
-                if (!$claimed || ($claimed['minecraft_source'] ?? '') !== 'portal') {
+                if (!$claimed || !in_array($claimed['minecraft_source'] ?? '', ['portal', 'admin'], true)) {
                     if ($claimed && ($claimed['uuid'] ?? '') === $user['uuid']) {
                         unset($claimed['uuid'], $claimed['minecraft_name']);
                         $db->put('user', $owner, $claimed);
@@ -137,7 +188,7 @@ final class Portal
                 unset($user['uuid']);
                 $user['minecraft_status'] = 'uuid_in_use';
             } else {
-                $user['minecraft_source'] = 'portal';
+                $user['minecraft_source'] = $override === null ? 'portal' : 'admin';
                 $db->put('uuid', $user['uuid'], ['user' => $user['id']]);
             }
         }

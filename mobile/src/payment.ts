@@ -1,4 +1,5 @@
 import type { Checkout, Order, PaymentCard, Wallet } from './types.ts';
+import { minecraftIssue } from '../../frontend/src/portal-profile.mjs';
 
 export const SUCCESS = new Set(['paid', 'held', 'active', 'released']);
 export const labels: Record<string, string> = {
@@ -15,12 +16,12 @@ export function preserveTerminal(previous: Order | undefined, incoming: Order): 
     ? previous : incoming;
 }
 
-export function walletCards(wallet: Wallet): PaymentCard[] {
+export function walletCards(wallet: Wallet, minecraftStatus?: string): PaymentCard[] {
   return [
     ...(['vault', 'scoreboard'] as const).map(type => ({
       key: type, type, name: type === 'vault' ? 'Vault 钱包' : '计分板钱包',
       balance: wallet.balances[type] ?? null,
-      detail: !wallet.available ? '请在 Portal 公开已验证的 Minecraft 档案' : wallet.balances[type] == null ? '余额暂不可用' : '游戏内可用余额',
+      detail: !wallet.available ? minecraftIssue(minecraftStatus).title : wallet.balances[type] == null ? '余额暂不可用' : '游戏内可用余额',
     })),
     ...wallet.cards.map(card => ({
       key: 'card:' + card.number, type: 'prepaid' as const, name: card.terms.name,

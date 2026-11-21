@@ -4,6 +4,7 @@ import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, 
 import { OrderRow } from './Player';
 import { CardIssuer } from './Cards';
 import { MerchantSettlement, Statement } from './Statements';
+import AdminMinecraftBinding from './AdminMinecraftBinding';
 
 function BusinessForm({ label, value, setValue, name, ...rest }) {
   return <Field name={name} label={label} value={value[name]} onChange={next => setValue({ ...value, [name]: next })} {...rest} />;
@@ -262,7 +263,9 @@ export function Admin({ user, online, section }) {
     <PageTitle title={{
       plugin: 'Bukkit 插件连接', review: '资金操作复核', cards: '平台预付卡发行',
       bind: '代玩家绑卡', 'card-events': '发行卡片使用记录', fund: '平台卡折扣补贴金',
+      'minecraft-binding': 'Minecraft UUID 绑定',
     }[section]} />
+    {section === 'minecraft-binding' && <AdminMinecraftBinding />}
     {system && <Feedback error={flow.error ?? info.error} success={flow.success} />}
     {section === 'plugin' && <Panel title="插件公钥" action={<Badge status={online ? 'success' : 'default'} text={online ? '在线' : '未连接'} />}>
       <form className="stack" onSubmit={event => {

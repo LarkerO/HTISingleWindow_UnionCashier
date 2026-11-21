@@ -17,6 +17,7 @@ import CardDeck from './CardDeck';
 import PaymentDrawer from './PaymentDrawer';
 import { labels, SUCCESS, walletCards } from './payment';
 import { useWallet } from './use-wallet';
+import { minecraftIssue, portalSyncUrl } from '../../frontend/src/portal-profile.mjs';
 
 export default function App() {
   const id = /^\/mobile\/checkout\/([a-f0-9]{32})$/.exec(location.pathname)?.[1];
@@ -31,6 +32,8 @@ export default function App() {
   const holder = user?.minecraft_name || user?.name || user?.id || 'Minecraft 玩家';
   const next = id ? '/mobile/checkout/' + id : '/mobile/';
   const environment = data.wallet?.environment ?? 'live';
+  const issue = minecraftIssue(user?.minecraft_status);
+  const syncUrl = portalSyncUrl(next);
   const orders = data.orders.filter(order => order.env === environment && (filter === 'all' || order.kind === filter));
 
   useEffect(() => {
@@ -43,7 +46,7 @@ export default function App() {
   return <div className="mobile-app">
     <header className="app-header">
       <a href="/mobile/" className="brand" aria-label="氢气工艺服务器交通信息单一窗口首页"><img src="/mobile/logo.png" alt="交通信息单一窗口" width="285" height="36" /></a>
-      {user && <Button variant="ghost" size="icon-lg" radius="full" aria-label="账户" onClick={() => setAccountOpen(true)}><Avatar name={holder} src={user.avatar_url} size="sm" /></Button>}
+      {user && <Button variant="ghost" size="icon-lg" radius="full" aria-label="账户" onClick={() => setAccountOpen(true)}><Avatar key={user.avatar_url ?? user.id} name={user.name || holder} src={user.avatar_url ?? undefined} size="sm" /></Button>}
     </header>
     <main>
       {(data.error || data.status?.oauth_error) && <Alert tone="danger" title={data.error || data.status?.oauth_error} actions={<Button variant="ghost" onClick={data.retry}>重新加载</Button>} />}
@@ -61,9 +64,12 @@ export default function App() {
               <Button variant="soft" radius="full" size="icon" aria-label="刷新余额" loading={data.refreshing} onClick={() => void data.refresh()}><RefreshCw size={18} /></Button>
             </div>
             <div className="wallet-environment"><Badge tone={environment === 'sandbox' ? 'warning' : 'brand'} variant="soft">{environment === 'sandbox' ? '沙箱钱包' : '正式钱包'}</Badge><span>氢气工艺 · 统一支付清算</span></div>
-            {!data.wallet ? <Skeleton className="wallet-skeleton" /> : <CardDeck cards={walletCards(data.wallet)} selected={selected} onSelect={setSelected} holder={holder} environment={environment} />}
+            {!data.wallet ? <Skeleton className="wallet-skeleton" /> : <CardDeck cards={walletCards(data.wallet, user.minecraft_status)} selected={selected} onSelect={setSelected} holder={holder} environment={environment} />}
             {data.balancePending && <div className="balance-status"><Spinner size="sm" tone="brand" /><span>正在同步游戏余额…</span></div>}
-            {data.wallet && !data.balancePending && !data.wallet.complete && <Alert tone="warning" title={data.wallet.available ? '游戏余额暂不可用，可刷新后重试' : '请在 Portal 公开已验证的 Minecraft 档案'} description="已激活且适用的预付卡仍可付款。" />}
+            {data.wallet && !data.balancePending && !data.wallet.complete && <Alert tone="warning"
+              title={data.wallet.available ? '游戏余额暂不可用，可刷新后重试' : issue.title}
+              description={<>{!data.wallet.available && <>{issue.description} </>}已激活且适用的预付卡仍可付款。</>}
+              actions={!data.wallet.available && <Button variant="ghost" asChild><a href={syncUrl}>同步 Portal 资料</a></Button>} />}
             <section className="transactions" aria-labelledby="transactions-heading">
               <div className="section-heading"><h2 id="transactions-heading">交易记录</h2><ReceiptText size={19} aria-hidden="true" /></div>
               <Tabs value={filter} onValueChange={setFilter} variant="pill" size="sm" aria-label="交易类型" options={[{ value: 'all', label: '全部' }, { value: 'pay', label: '支付' }, { value: 'hold', label: '预授权' }, { value: 'agreement', label: '签约' }]} />
@@ -82,6 +88,9 @@ export default function App() {
     <footer className="app-footer"><ShieldCheck size={14} aria-hidden="true" /><span>氢气工艺服务器 · 统一支付清算</span></footer>
     <Drawer open={accountOpen} onOpenChange={setAccountOpen} title="我的账户" description={holder} showClose closeLabel="关闭账户" size="sm">
       <div className="account-actions">
+        {user && <Avatar key={user.avatar_url ?? user.id} name={user.name || holder} src={user.avatar_url ?? undefined} size="lg" />}
+        {!user?.avatar_url && <p className="payment-note">尚未获取 Portal 头像，请同步 Portal 资料。</p>}
+        <Button variant="soft" leftIcon={<RefreshCw size={18} />} fullWidth asChild><a href={syncUrl}>同步 Portal 资料</a></Button>
         <Button variant="soft" leftIcon={<ExternalLink size={18} />} fullWidth asChild><a href="/">打开完整玩家面板</a></Button>
         <Button variant="ghost" fullWidth asChild><a href={environment === 'sandbox' ? '/mobile/' : '/mobile/?environment=sandbox'}>{environment === 'sandbox' ? '查看正式钱包' : '查看沙箱钱包'}</a></Button>
         <Button variant="ghost" tone="danger" fullWidth leftIcon={<LogOut size={18} />} loading={loggingOut} onClick={async () => {
@@ -91,7 +100,7 @@ export default function App() {
         {logoutError && <Alert tone="danger" title={logoutError} />}
       </div>
     </Drawer>
-    {data.checkout && data.wallet && <PaymentDrawer checkout={data.checkout} wallet={data.wallet} holder={holder} open={drawerOpen}
+    {data.checkout && data.wallet && <PaymentDrawer checkout={data.checkout} wallet={data.wallet} holder={holder} minecraftStatus={user?.minecraft_status} open={drawerOpen}
       readOrder={data.readOrder} acceptOrder={data.acceptOrder} refresh={data.refresh} />}
   </div>;
 }

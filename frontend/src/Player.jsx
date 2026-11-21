@@ -1,16 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Alert, Badge, Button, Descriptions, Divider, Flexbox, Statistic, Tag, Text } from '@lobehub/ui';
-import { api, date, Empty, Feedback, Field, Loading, money, options, PageTitle, Panel, products, rails, SignIn, State, useAction, useLoad } from './shared';
+import { Alert, Badge, Button, Descriptions, Divider, Flexbox, Icon, Modal, Statistic, Tag, Text } from '@lobehub/ui';
+import { api, date, Empty, Feedback, Loading, money, PageTitle, Panel, products, rails, SignIn, State, useAction, useLoad } from './shared';
 import { PaymentLimits, Statement } from './Statements';
 
-const minecraftStatus = {
-  profile_scope_missing: 'Portal 授权未返回用户名，请联系平台管理员检查 OAuth profile 权限。',
-  profile_unavailable: 'Portal 未提供该用户的公开 Minecraft 档案。若要同步，请检查公开个人资料和显示 Minecraft 档案两项设置，再重新登录。',
-  unverified: 'Portal 暂无已验证的 Minecraft 绑定，请在 Portal 检查绑定验证状态。',
-  primary_required: 'Portal 有多个已验证档案，请选定唯一的主档案后重新登录。',
-  uuid_missing: 'Portal 已验证绑定，但绑定记录缺少可用的 UUID。请联系 Portal 管理员检查该玩家的绑定记录。',
-  uuid_in_use: '该 Minecraft UUID 已关联其他清算账号，请联系清算管理员核对。',
-};
+import { Check, ChevronRight, CreditCard, Fingerprint, ListOrdered, LockKeyhole, ReceiptText } from 'lucide-react';
+import { MethodLabel, paymentOptions, PaymentOrderEditor, PaymentOrderPage, PaymentRadioList } from './PaymentOrder';
+import { minecraftIssue, portalSyncUrl } from './portal-profile.mjs';
 
 export function Account({ user, online, section = 'account' }) {
   const account = useLoad(user ? 'account' : null, 4000);
@@ -34,7 +29,7 @@ export function Account({ user, online, section = 'account' }) {
   }
   const accountData = account.data;
   const agreements = section === 'agreements';
-  const title = { account: '账户概览', orders: '交易记录', agreements: '免密签约', limits: '支付限额', statement: '付款对账' }[section];
+  const title = { account: '账户概览', orders: '交易记录', agreements: '免密签约', limits: '支付限额', 'payment-order': '支付顺序调整', statement: '付款对账' }[section];
   const orders = accountData?.orders.filter(order => (order.kind === 'agreement') === agreements);
   const displayName = user.name || user.hydroline_id;
   return <>
@@ -45,8 +40,13 @@ export function Account({ user, online, section = 'account' }) {
         <Descriptions column={1} colon={false} items={[
           { label: '游戏名称', children: user.minecraft_name || '尚未同步' },
           { label: '清算账号 ID', children: user.id },
+          { label: '绑定方式', children: user.minecraft_status === 'linked_manual' ? '管理员手工绑定'
+            : user.uuid ? 'Portal 主展示账号' : '尚未同步' },
         ]} />
-        {!user.uuid && <Text as="p" className="muted">{minecraftStatus[user.minecraft_status] ?? '尚无同步状态，请重新登录以检查 Portal 档案。'}</Text>}
+        {!user.uuid && <>
+          <Text as="p" className="muted">{minecraftIssue(user.minecraft_status).description}</Text>
+          <Button href={portalSyncUrl()}>同步 Portal 资料</Button>
+        </>}
       </Panel>
       <Panel title="游戏内余额" action={<Button disabled={!user.uuid} loading={action.busy}
         onClick={() => action.run(async () => { await api('balance', {}); account.reload(); })}>查询</Button>}>
@@ -58,6 +58,7 @@ export function Account({ user, online, section = 'account' }) {
       </Panel>
     </Flexbox>}
     <Feedback error={action.error ?? account.error} />
+    {section === 'payment-order' && <PaymentOrderPage />}
     {section === 'limits' && <PaymentLimits />}
     {section === 'statement' && <Statement />}
     {(section === 'orders' || agreements) && <Panel title={agreements ? '签约记录' : '订单与预授权'}>
@@ -89,12 +90,17 @@ export function OrderRow({ order, action }) {
 
 export function Checkout({ id, user }) {
   const resource = useLoad(user ? 'checkout/' + id : null, 2000);
-  const [method, setMethod] = useState('vault');
-  const [fallbacks, setFallbacks] = useState([]);
-  const [nextMethod, setNextMethod] = useState('none');
+  const [method, setMethod] = useState(null);
+  const [popup, setPopup] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [savedPreference, setSavedPreference] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
   const action = useAction();
   const order = resource.data?.order;
+  const loadedPreference = resource.data?.payment_order;
+  useEffect(() => {
+    if (savedPreference && loadedPreference && savedPreference.previous !== loadedPreference) setSavedPreference(null);
+  }, [loadedPreference, savedPreference]);
   const completed = order && ['paid', 'held', 'active', 'released'].includes(order.status);
   useEffect(() => {
     if (confirmed && completed && order.return_url) {
@@ -111,30 +117,24 @@ export function Checkout({ id, user }) {
 
   const isAgreement = order.kind === 'agreement';
   const isHold = order.kind === 'hold';
-  const methods = {
-    ...(order.env === 'live' && !user.uuid ? {} : rails),
-    ...Object.fromEntries((resource.data.cards ?? []).map(card =>
-      ['card:' + card.number, card.terms.name + ' · 余额 ' + money(card.balance) + ' · ' + card.number.slice(-6)])),
-  };
-  const selected = methods[method] ? method : Object.keys(methods)[0];
-  const primaryCard = selected?.startsWith('card:');
-  const allowFallbacks = order.kind !== 'pay' || primaryCard;
-  const eligibleFallbacks = Object.entries(methods).filter(([key]) =>
-    key !== selected && (order.kind !== 'pay' || !key.startsWith('card:')));
-  const availableKeys = new Set(eligibleFallbacks.map(([key]) => key));
-  const backup = allowFallbacks ? fallbacks.filter(key => availableKeys.has(key)) : [];
-  const unused = eligibleFallbacks.filter(([key]) => !backup.includes(key));
+  const ordered = isAgreement || isHold;
+  const methods = paymentOptions(order.env !== 'live' || user.uuid, resource.data.cards ?? []);
+  const available = new Map(methods.map(method => [method.key, method]));
+  const preference = (savedPreference?.methods ?? loadedPreference ?? Object.keys(rails)).filter(key => available.has(key));
+  const defaultMethod = available.get(preference[0]) ?? methods[0];
+  const selected = available.get(method) ?? defaultMethod;
+  const pendingMethod = available.get(draft) ?? selected;
+  const supplement = selected?.combine ? preference.find(key => Object.hasOwn(rails, key)) : undefined;
+  const chosen = selected ? [
+    selected.key,
+    ...(ordered ? preference.filter(key => key !== selected.key) : supplement ? [supplement] : []),
+  ].slice(0, 8) : [];
+  const checkoutIcon = isAgreement ? Fingerprint : isHold ? LockKeyhole : CreditCard;
 
-  function moveBackup(index, change) {
-    const updated = [...backup];
-    [updated[index], updated[index + change]] = [updated[index + change], updated[index]];
-    setFallbacks(updated);
-  }
-  const needsLink = !selected;
   const expired = order.status === 'pending' && order.expires * 1000 < Date.now();
-  return <div className="checkout-layout">
+  return <Flexbox className="checkout-layout">
     <PageTitle title={products[order.kind]} action={order.env === 'sandbox' && <Tag color="warning">沙箱</Tag>} />
-    <Panel className="checkout-summary" title={order.merchant_name}>
+    <Panel className="checkout-summary" title={<Flexbox horizontal align="center" gap={8}><Icon icon={ReceiptText} aria-hidden="true" />{order.merchant_name}</Flexbox>}>
       <Text as="p" className="checkout-order-title">{order.title}</Text>
       {!isAgreement && <Text as="p" className="checkout-amount">{money(order.amount)} <Text as="span">游戏单位</Text></Text>}
       <Divider />
@@ -142,38 +142,47 @@ export function Checkout({ id, user }) {
         <Text className="muted">商户订单号 {order.out_trade_no}</Text><State value={order.status} />
       </Flexbox>
     </Panel>
-    <Panel title={order.status === 'pending' ? '支付方式' : '处理进度'}>
+    <Panel title={order.status === 'pending' ? ordered ? '扣款方式' : '支付方式' : '处理进度'}>
       {order.status === 'pending' && !expired && <>
-        <Field name="payment-method" label={order.kind === 'pay' ? '支付方式' : '优先支付方式'}
-          value={selected ?? ''} onChange={value => {
-            setMethod(value);
-            setFallbacks(backup.filter(key => key !== value));
-            setNextMethod('none');
-          }} choices={options(methods)} />
-        {allowFallbacks && <>
-          {backup.map((key, index) => <Flexbox key={key} horizontal gap={8} align="center" wrap="wrap" className="record">
-            <Text>{index + 2}. {methods[key]}</Text>
-            <Button size="small" disabled={index === 0} onClick={() => moveBackup(index, -1)}>上移</Button>
-            <Button size="small" disabled={index === backup.length - 1} onClick={() => moveBackup(index, 1)}>下移</Button>
-            <Button size="small" onClick={() => setFallbacks(backup.filter(value => value !== key))}>移除</Button>
-          </Flexbox>)}
-          {unused.length > 0 && backup.length < 7 && <Flexbox horizontal gap={8} align="end" wrap="wrap">
-            <Field name="backup-method" label="备用支付方式"
-              value={unused.some(([key]) => key === nextMethod) ? nextMethod : 'none'}
-              onChange={setNextMethod} choices={[{ value: 'none', label: '选择备用方式' }, ...options(Object.fromEntries(unused))]} />
-            <Button disabled={!unused.some(([key]) => key === nextMethod)} onClick={() => {
-              setFallbacks([...backup, nextMethod]);
-              setNextMethod('none');
-            }}>添加</Button>
-          </Flexbox>}
+        {ordered && selected && <>
+          <Button block className="payment-order-trigger" aria-haspopup="dialog" disabled={action.busy}
+            icon={<Icon icon={ListOrdered} aria-hidden="true" />} onClick={() => {
+              setDraft(selected.key);
+              setPopup('choose');
+            }}>
+            <Text>{selected.key === defaultMethod.key ? '默认扣款顺序' : '本次扣款顺序'}（优先使用 {selected.name}）</Text>
+            <Icon icon={ChevronRight} size={16} aria-hidden="true" />
+          </Button>
+          <Modal open={popup !== null} title={popup === 'edit' ? '修改扣款顺序' : '扣款方式'}
+            onCancel={() => setPopup(null)}
+            footer={popup === 'choose' ? <Flexbox horizontal justify="space-between" gap={8} wrap="wrap">
+              <Button icon={<Icon icon={ListOrdered} aria-hidden="true" />} onClick={() => setPopup('edit')}>修改扣款顺序</Button>
+              <Button type="primary" className="primary" icon={<Icon icon={Check} aria-hidden="true" />} disabled={!pendingMethod}
+                onClick={() => {
+                  setMethod(pendingMethod.key === defaultMethod.key ? null : pendingMethod.key);
+                  setPopup(null);
+                }}>确认</Button>
+            </Flexbox> : false}>
+            {popup === 'edit' ? <PaymentOrderEditor onSaved={methods => {
+              setSavedPreference({ methods, previous: loadedPreference });
+              setMethod(null);
+              setDraft(null);
+              resource.reload();
+              setPopup('choose');
+            }} /> : <PaymentRadioList methods={methods} selected={pendingMethod} onChange={setDraft} />}
+          </Modal>
         </>}
-        <Text as="p" className="muted">{isAgreement ? '商户可按所选顺序发起免密扣款。签约后可在玩家面板解约。'
-          : isHold ? '确认后会冻结对应金额。商户解除预授权时，未结算余额退回原支付方式。'
-          : '按所选支付方式扣款。支持组合的预付卡可使用游戏钱包补足差额。'}</Text>
-        {needsLink && <Alert type="warning" title="当前没有可用方式，请激活适用的预付卡或在 Portal 公开已验证的 Minecraft 档案" />}
-        <Button size="large" type="primary" className="primary" disabled={needsLink} loading={action.busy}
+        {!ordered && methods.length > 0 && <PaymentRadioList methods={methods} selected={selected} onChange={setMethod} disabled={action.busy} />}
+        {isAgreement && <Text as="p" className="muted">商户可按确认的顺序发起免密扣款。签约后可在玩家面板解约。</Text>}
+        {isHold && <Text as="p" className="muted">确认后会冻结对应金额。未结算余额在解除时退回原支付方式。</Text>}
+        {!ordered && supplement && <Text as="p" className="muted">此预付卡支持组合支付，余额不足时由 {rails[supplement]} 补足差额。</Text>}
+        {!selected && <Alert type="warning" title={minecraftIssue(user.minecraft_status).title}
+          description={<>{minecraftIssue(user.minecraft_status).description} 已激活且适用的预付卡仍可付款。
+            <Button type="text" href={portalSyncUrl('/checkout/' + id)}>同步 Portal 资料</Button></>} />}
+        <Button size="large" type="primary" className="primary" disabled={!selected || popup !== null} loading={action.busy}
+          icon={<Icon icon={checkoutIcon} aria-hidden="true" />}
           onClick={() => action.run(async () => {
-            await api('checkout', { action: 'confirm', id, methods: [selected, ...backup] });
+            await api('checkout', { action: 'confirm', id, methods: chosen });
             setConfirmed(true);
             resource.reload();
           })}>{isAgreement ? '确认签约' : isHold ? '确认冻结' : '确认支付'}</Button>
@@ -186,7 +195,6 @@ export function Checkout({ id, user }) {
       } />}
       {completed && order.return_url && <Button type="primary" className="primary" href={order.return_url}>返回商户</Button>}
       <Feedback error={action.error ?? resource.error} />
-      <Button type="text" href="/">返回玩家面板</Button>
     </Panel>
-  </div>;
+  </Flexbox>;
 }

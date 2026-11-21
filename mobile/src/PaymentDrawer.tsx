@@ -8,16 +8,18 @@ import CardDeck from './CardDeck';
 import PaymentFeedback from './PaymentFeedback';
 import { failures, PaymentAttempt, paymentPlan, SUCCESS, walletCards } from './payment';
 import type { Checkout, Order, Wallet } from './types';
+import { portalSyncUrl } from '../../frontend/src/portal-profile.mjs';
 
 type Props = {
   checkout: Checkout; wallet: Wallet; holder: string; open: boolean;
+  minecraftStatus?: string;
   readOrder: () => Promise<Order>; acceptOrder: (order: Order) => void;
   refresh: () => Promise<void>;
 };
 
-export default function PaymentDrawer({ checkout, wallet, holder, open, readOrder, acceptOrder, refresh }: Props) {
+export default function PaymentDrawer({ checkout, wallet, holder, minecraftStatus, open, readOrder, acceptOrder, refresh }: Props) {
   const order = checkout.order;
-  const cards = walletCards(wallet);
+  const cards = walletCards(wallet, minecraftStatus);
   const [selected, setSelected] = useState('vault');
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
@@ -82,6 +84,9 @@ export default function PaymentDrawer({ checkout, wallet, holder, open, readOrde
         </Button>
         <Button variant="soft" size="lg" fullWidth asChild><a href={home}>回首页</a></Button>
       </div> : <>
+        {!wallet.available && !busy && !terminal && !expired && <Button variant="soft" fullWidth asChild>
+          <a href={portalSyncUrl('/mobile/checkout/' + order.id)}>同步 Portal 资料</a>
+        </Button>}
         {!busy && !terminal && !expired && <Button variant="ghost" tone="brand" fullWidth disabled={Boolean(plan.reason)} onClick={() => void pay()}>
           {order.kind === 'agreement' ? '或点此确认签约' : order.kind === 'hold' ? '或点此确认冻结' : '或点此确认付款'}
         </Button>}

@@ -402,10 +402,10 @@ final class Clearing
         if ($env === 'sandbox') {
             return $user['id'];
         }
-        if (($user['minecraft_source'] ?? '') === 'portal' && isset($user['uuid'])) {
+        if (in_array($user['minecraft_source'] ?? '', ['portal', 'admin'], true) && isset($user['uuid'])) {
             return $user['uuid'];
         }
-        return $required ? throw new Fault('请先在 Portal 绑定并公开 Minecraft 玩家档案，再重新登录') : null;
+        return $required ? throw new Fault('请同步 Portal 主展示账号，或联系清算管理员协助绑定 Minecraft UUID') : null;
     }
 
     private function saveOrder(array $order): void

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { gestureIntent, PaymentAttempt, paymentPlan, preserveTerminal, walletCards } from '../src/payment.ts';
 import { mobileCheckout } from '../../frontend/src/mobile-route.mjs';
+import { minecraftIssue, portalSyncUrl } from '../../frontend/src/portal-profile.mjs';
 
 const id = 'a'.repeat(32);
 const order = { id, status: 'pending', kind: 'pay', env: 'sandbox', amount: 80, expires: 5000 };
@@ -9,6 +10,26 @@ const prepaid = { number: id, env: 'sandbox', state: 'active', balance: 30, term
 const wallet = { environment: 'sandbox', available: true, complete: true, balances: { vault: 100, scoreboard: 20 }, cards: [prepaid] };
 const checkout = { order, payment_order: ['scoreboard', 'vault'], cards: [prepaid] };
 const plan = (key, data = checkout, funds = wallet) => paymentPlan(walletCards(funds).find(card => card.key === key), data, funds, 1000);
+
+test('Portal binding problems remain distinct from privacy settings in both wallet cards', () => {
+  const unavailable = { ...wallet, available: false, complete: false, balances: {} };
+  for (const status of ['uuid_missing', 'uuid_observed_only', 'uuid_conflict', 'primary_required', 'uuid_in_use']) {
+    const issue = minecraftIssue(status);
+    assert.doesNotMatch(issue.description, /公开个人资料/);
+    assert.ok(walletCards(unavailable, status).slice(0, 2).every(card => card.detail === issue.title));
+  }
+  assert.match(minecraftIssue('profile_unavailable').description, /公开个人资料/);
+  assert.match(minecraftIssue(undefined).description, /同步 Portal 资料/);
+});
+
+test('Portal profile sync returns to the same checkout and rejects external targets', () => {
+  for (const next of ['/', '/mobile/', '/checkout/' + id, '/mobile/checkout/' + id]) {
+    assert.equal(new URL(portalSyncUrl(next), 'https://cashier.test').searchParams.get('next'), next);
+  }
+  for (const next of ['//attacker.test', 'https://attacker.test', '/unknown']) {
+    assert.equal(new URL(portalSyncUrl(next), 'https://cashier.test').searchParams.get('next'), '/');
+  }
+});
 
 test('mobile UA redirects only checkout; desktop override and iPadOS work', () => {
   assert.equal(mobileCheckout('/checkout/' + id, '', 'Mozilla iPhone Mobile'), '/mobile/checkout/' + id);

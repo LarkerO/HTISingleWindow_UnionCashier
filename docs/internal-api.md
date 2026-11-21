@@ -15,7 +15,15 @@
 | `GET /oauth/login?next=/checkout/{id}` | 跳往 Portal，`next` 可省略 |
 | `GET /oauth/callback` | 校验 state，并用 PKCE verifier 向 Portal 换取身份。失败时返回安装页或登录前页面 |
 
-Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/userinfo`、`/api/public/users/{preferred_username}/minecraft-accounts`。最后一个接口需同时开启公开个人资料和显示 Minecraft 档案。仅同步已验证绑定的 UUID，按用户名匹配的游戏服务器 UUID 不作为钱包身份。登录响应另包含头像地址与 Minecraft 档案同步状态。
+Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/userinfo`、`/api/public/users/{preferred_username}/minecraft-accounts`。最后一个接口需同时开启公开个人资料和显示 Minecraft 档案。同步时先选定唯一的 `isPrimary=true` 主展示账号；仅有一个账号且未标记主账号时使用该账号，多个账号无唯一主账号则等待用户指定，不回退到其他账号。主账号须为未解绑的 `AUTHENTICATED / VERIFIED` 账号。
+
+头像优先使用 OAuth `picture`，缺失或地址无效时读取公开用户资料的 `profile.avatarUrl`，支持 Portal 相对路径及 HTTPS CDN。头像获取不依赖 Minecraft UUID；已有会话只读取本地缓存，前端「同步 Portal 资料」通过重新授权更新头像与绑定，完成后回到原收银台。
+
+主展示账号按 `uuid` → `playerIdentity.boundUuid` → `playerIdentity.resolvedUuid` 顺序获取 UUID，允许直接使用 Portal 解析的同名游戏记录。若这些字段均无效，则从该主账号 `observedPlayers` 中按玩家名（不区分大小写）筛选并去重，仅有一个 UUID 时采用，多个不同 UUID 返回 `uuid_conflict`；不得从次要账号取 UUID。跨服务器的同一 UUID 不算冲突。
+
+`user.minecraft_status` 区分 `profile_scope_missing`、`profile_unavailable`、`unverified`、`primary_required`、`uuid_missing`、`uuid_conflict`、`uuid_in_use`、`linked`、`linked_manual`。旧 `uuid_observed_only` 状态提示用户重新同步。`minecraft_uuid_origin` 为 `bound`（Portal 绑定）、`resolved`（Portal 同名解析）、`observed`（唯一同名记录）或 `manual`（管理员手工绑定）。
+
+管理员手工绑定优先于自动同步，玩家重新登录仍保留手工结果，同时更新最近的 Portal 主账号快照。恢复自动绑定使用该快照，玩家可重新授权刷新。UUID 改变时清除旧余额缓存与归属索引，保留旧订单的资金来源；新旧 UUID 不一致的免密协议须重新签约。Portal 自动同步和管理员绑定均不能占用其他有效清算账号的 UUID。
 
 ## 浏览器 API
 
@@ -26,22 +34,26 @@ Portal 调用顺序为 `/oauth/authorize`、`/api/oauth/token`、`/api/oauth/use
 | `GET /api/status` | 无 | `installed`、`csrf`、`user`、`mode`、`plugin_online`、`public_key`、`oauth_error`、`oauth_setup_retry` |
 | `GET /api/account` | 无 | 本人 `orders`、上次查询的 `balance` |
 | `GET /api/player-wallet?environment=live` | `environment=live` 或 `sandbox`，默认正式 | 本人钱包快照：`environment`、`available`、`balances`、`requested`、`complete`、已激活 `cards`。正式读取当前已验证 UUID 的余额缓存，沙箱读取隔离账本；不触发扣款。环境非法返回 HTTP 400、`INVALID_ENVIRONMENT` |
-| `GET /api/checkout/{id}` | 清算订单 ID | 订单与可用预付卡 |
+| `GET /api/checkout/{id}` | 清算订单 ID | 订单、可用预付卡与默认支付顺序 |
 | `GET /api/cards` | 无 | `catalog`、`cards`、`operations`、`events` |
 | `GET /api/card-types?issuer=` | 商户号，留空为平台卡 | 有权限的发行方卡种和流水 |
 | `GET /api/card-art/{id}` | 卡面图片 ID | PNG／JPEG／WebP 原图 |
+| `GET /api/payment-order` | 无 | 默认有序 `methods` 与账号可加入顺序的预付卡 |
 | `GET /api/payment-limits` | 无 | 当前账号支付限额 |
 | `GET /api/statement` | `environment`、`month`、`merchant`、`page`；商户视图加 `scope=merchant` | 经过权限过滤的流水分页 |
 | `GET /api/statement.xlsx` | 与流水查询相同 | 过滤后的 XLSX 附件 |
 | `GET /api/merchants` | 无 | 有权查看的商户 |
 | `GET /api/merchants/{id}` | 商户 ID | 商户、订单、总余额及可提现余额 |
 | `GET /api/admin` | 超级管理员会话 | 插件配置状态和待复核记录 |
+| `GET /api/minecraft-binding?user={id}` | 超级管理员会话、玩家清算账号 ID | `user` 当前身份、`portal` 最近主账号快照、`override` 手工绑定（或 null）、最近 20 条 `events` |
 | `POST /api/install` | 安装口令、DB、Redis 可选项、Portal OAuth、部署模式 | Portal 授权跳转地址 |
 | `POST /api/logout` | 空 JSON | `ok`；清理登录会话 |
+| `POST /api/minecraft-binding` | 超级管理员会话；`action=bind`、`user`、`uuid`、`minecraft_name`、`reason`；恢复自动绑定用 `action=restore`、`user`、`reason` | 同查询响应，同步完成。UUID 支持 32 位或带连字符格式；无权限 HTTP 403；账号不存在 HTTP 404；参数无效 HTTP 400；UUID 已占用 HTTP 409、`MINECRAFT_UUID_IN_USE`。记录操作人、原因、时间及前后 UUID |
 | `POST /api/balance` | 空 JSON | 受理后返回查询时间和结果快照 |
 | `POST /api/checkout` | `id`、`action=confirm`、`methods`；解约用 `action=revoke` | 订单或协议 |
 | `POST /api/cards` | 见下表 | 卡类型、卡或操作状态 |
 | `POST /api/card-art` | `data` 为图片标准 Base64 | 卡面 `id` |
+| `POST /api/payment-order` | `methods` 为有序数组，包含 Vault 和计分板，最多 8 项，可加入自己的已激活预付卡 | 已保存的顺序与可加入的预付卡 |
 | `POST /api/payment-limits` | `method`、`single`、`count` | 已保存的规则 |
 | `POST /api/merchant` | 见下表 | 商户配置或调试结果 |
 | `POST /api/plugin` | 插件 SM2 公钥 `public_key` | `ok` |
